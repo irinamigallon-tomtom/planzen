@@ -30,3 +30,4 @@ htmlcov/
 # Excel temporary/lock files
 ~$*.xlsx
 ~$*.xls
+tmp/

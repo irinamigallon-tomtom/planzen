@@ -11,6 +11,7 @@ Two output files are always created in OUTPUT_DIR (default: ./output/):
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from pathlib import Path
 
@@ -18,9 +19,10 @@ import typer
 
 from planzen.config import WORKING_DAYS_PER_WEEK
 from planzen.core_logic import CapacityConfig, build_output_table, get_quarter_dates, _mondays_in_range
-from planzen.excel_io import read_input, write_output, write_output_with_formulas
+from planzen.excel_io import read_input, validate_input_file, write_output, write_output_with_formulas
 
 app = typer.Typer(help="planzen — weekly capacity allocation tool.")
+logging.basicConfig(level=logging.WARNING, format="⚠  %(message)s")
 
 
 @app.command()
@@ -38,6 +40,16 @@ def run(
         start_date, end_date = get_quarter_dates(quarter)
     except ValueError as exc:
         raise typer.BadParameter(str(exc), param_hint="'-q'") from exc
+
+    errors = validate_input_file(input_file)
+    if errors:
+        typer.echo(
+            typer.style(f"\n✗  '{input_file}' has {len(errors)} problem(s):\n", fg=typer.colors.RED, bold=True)
+        )
+        for i, msg in enumerate(errors, 1):
+            typer.echo(typer.style(f"  {i}. ", fg=typer.colors.RED) + msg)
+        typer.echo()
+        raise typer.Exit(code=1)
 
     epics_df, num_engineers, num_managers, eng_absence_days, mgmt_absence_days = (
         read_input(input_file)

@@ -78,37 +78,38 @@ Identified by their value in the `Epic Description` column. The `Estimation` col
 | `Epic Description` label | `Estimation` value | Unit | Required? |
 |---|---|---|---|
 | `Engineer Bruto Capacity` | e.g. `5` or `2.5` | **FTE** | ✅ |
-| `Management Bruto Capacity` | e.g. `2` or `0.5` | **FTE** | ✅ |
+| `Manager Bruto Capacity` | e.g. `2` or `0.5` | **FTE** | ✅ |
 | `Engineer Absence (days)` | e.g. `10` | **working days** — total for the quarter | optional |
 | `Manager Absence (days)` | e.g. `4` | **working days** — total for the quarter | optional |
 
 When absence is omitted the tool falls back to **37 days/year** (30 vacation + 7 sick), pro-rated to the quarter: `37 / 52 weeks / 5 days × FTE` ≈ 0.142 PW/person/week.
 
-### Epic columns (required, order does not matter)
+### Epic columns (order does not matter; extra columns are preserved)
 
-| Column | Type | Unit | Description |
-|---|---|---|---|
-| `Epic Description` | text | — | Name / description of the Epic |
-| `Estimation` | float | **PW** (total effort) | Total capacity to allocate across all weeks |
-| `Budget Bucket` | text | — | Cost/budget category (e.g. Platform, Analytics) |
-| `Type` | text | — | Epic type (e.g. Feature, Improvement) |
-| `Link` | text | — | URL to the Epic in your tracking tool |
-| `Priority` | integer | — | Priority rank — lower number = higher priority; controls allocation order |
+| Column | Required | Type | Unit | Description |
+|---|---|---|---|---|
+| `Epic Description` | ✅ | text | — | Name / description of the Epic |
+| `Estimation` | ✅ | float | **PW** (total effort) | Total capacity to allocate across all weeks |
+| `Budget Bucket` | ✅ | text | — | Cost/budget category (e.g. Platform, Analytics) |
+| `Link` | ✅ | text | — | URL to the Epic in your tracking tool |
+| `Priority` | ✅ | integer | — | Priority rank — lower number = higher priority; controls allocation order |
+| `Type` | optional | text | — | Epic type (e.g. Feature, Improvement) |
+| `Milestone` | optional | text | — | Target milestone (e.g. Q1, Q2) |
 
-The optional column `Milestone` (e.g. Q1, Q2) and any additional columns are preserved without error.
+Any additional columns are preserved without error.
 
 ### Example input (`data/examples/input_example.xlsx`)
 
-| Epic Description | Estimation | Budget Bucket | Type | Link | Priority | Milestone |
-|---|---|---|---|---|---|---|
-| Engineer Bruto Capacity | **5.0 FTE** | | | | | |
-| Management Bruto Capacity | **2.0 FTE** | | | | | |
-| Engineer Absence (days) | **10 days** | | | | | |
-| Auth & Identity Management | 80.0 PW | Platform | Feature | …/AUTH-1 | 0 | Q1 |
-| Real-time Analytics | 120.0 PW | Analytics | Feature | …/ANA-1 | 0 | Q2 |
-| Mobile App Redesign | 100.0 PW | Product | Improvement | …/MOB-1 | 1 | Q2 |
-| API Gateway Optimization | 60.0 PW | Platform | Improvement | …/API-1 | 1 | Q3 |
-| Data Quality Framework | 90.0 PW | Analytics | Feature | …/DQ-1 | 2 | Q3 |
+| Epic Description | Estimation | Budget Bucket | Link | Priority | Milestone |
+|---|---|---|---|---|---|
+| Engineer Bruto Capacity | **5.0 FTE** | | | | |
+| Manager Bruto Capacity | **2.0 FTE** | | | | |
+| Engineer Absence (days) | **10 days** | | | | |
+| Alpha Search | 8.0 PW | Core | …/1 | 1 | Q2 |
+| Beta Platform | 12.0 PW | Platform | …/2 | 2 | Q2 |
+| Gamma Onboarding | 5.0 PW | Growth | …/3 | 3 | Q2 |
+| Delta Infra | 7.0 PW | Platform | …/4 | 4 | Q2 |
+| Epsilon Compliance | 3.0 PW | Core | …/5 | 5 | Q2 |
 
 ---
 

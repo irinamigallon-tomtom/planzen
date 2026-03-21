@@ -29,7 +29,7 @@ from planzen.config import (
     OUT_COL_TOTAL_WEEKS,
 )
 from planzen.core_logic import CapacityConfig, build_output_table
-from planzen.excel_io import formulas_path, read_input, write_output, write_output_with_formulas
+from planzen.excel_io import formulas_path, read_input, validate_input_file, write_output, write_output_with_formulas
 
 # ---------------------------------------------------------------------------
 # Shared fixtures and helpers
@@ -141,7 +141,7 @@ def _base_row(**extra) -> dict:
 def _config_rows() -> list[dict]:
     return [
         {"Epic Description": "Engineer Bruto Capacity", "Estimation": 5.0},
-        {"Epic Description": "Management Bruto Capacity", "Estimation": 2.0},
+        {"Epic Description": "Manager Bruto Capacity", "Estimation": 2.0},
     ]
 
 
@@ -187,7 +187,7 @@ def test_read_input_epic_rows_exclude_config_rows(tmp_path: Path) -> None:
     _write_input(p, [_base_row()])
     epics, _, _, _, _ = read_input(p)
     assert "Engineer Bruto Capacity" not in epics["Epic Description"].values
-    assert "Management Bruto Capacity" not in epics["Epic Description"].values
+    assert "Manager Bruto Capacity" not in epics["Epic Description"].values
     assert len(epics) == 1
 
 
@@ -222,14 +222,14 @@ def test_read_input_preserves_column_order(tmp_path: Path) -> None:
     # (from config rows), then the remaining epic columns.
     assert epics.columns[0] == "Epic Description"
     assert epics.columns[1] == "Estimation"
-    # All required epic columns must be present
-    for col in ("Priority", "Link", "Type", "Budget Bucket"):
+    # All required epic columns must be present (Type is optional)
+    for col in ("Priority", "Link", "Budget Bucket"):
         assert col in epics.columns
 
 
 def test_read_input_raises_for_missing_engineers_row(tmp_path: Path) -> None:
     p = tmp_path / "input.xlsx"
-    config = [{"Epic Description": "Management Bruto Capacity", "Estimation": 2.0}]
+    config = [{"Epic Description": "Manager Bruto Capacity", "Estimation": 2.0}]
     _write_input(p, [_base_row()], config=config)
     with pytest.raises(ValueError, match="Engineer Bruto Capacity"):
         read_input(p)
@@ -237,11 +237,251 @@ def test_read_input_raises_for_missing_engineers_row(tmp_path: Path) -> None:
 
 def test_read_input_raises_for_missing_required_epic_columns(tmp_path: Path) -> None:
     p = tmp_path / "input.xlsx"
-    # Epic row missing Budget Bucket, Type, Link, Priority
+    # Epic row missing Budget Bucket, Link, Priority (Type is optional)
     rows = _config_rows() + [{"Epic Description": "E", "Estimation": 1.0}]
     pd.DataFrame(rows).to_excel(p, index=False)
     with pytest.raises(ValueError, match="missing required columns"):
         read_input(p)
+
+
+# ---------------------------------------------------------------------------
+# read_input: fuzzy / case-insensitive config label matching
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("eng_label", [
+    "Engineer Bruto Capacity",   # canonical
+    "engineer bruto capacity",   # all lowercase
+    "ENGINEER BRUTO CAPACITY",   # all uppercase
+    "  Engineer Bruto Capacity ",  # extra whitespace
+])
+def test_read_input_accepts_engineer_label_variants(tmp_path: Path, eng_label: str) -> None:
+    p = tmp_path / "input.xlsx"
+    config = [
+        {"Epic Description": eng_label, "Estimation": 4.0},
+        {"Epic Description": "Manager Bruto Capacity", "Estimation": 2.0},
+    ]
+    _write_input(p, [_base_row()], config=config)
+    _, eng, _, _, _ = read_input(p)
+    assert eng == 4.0
+
+
+@pytest.mark.parametrize("mgr_label", [
+    "Manager Bruto Capacity",  # canonical
+    "Manager Bruto Capacity",     # singular "Manager" instead of "Management"
+    "manager bruto capacity",     # lowercase + singular
+])
+def test_read_input_accepts_manager_label_variants(tmp_path: Path, mgr_label: str) -> None:
+    p = tmp_path / "input.xlsx"
+    config = [
+        {"Epic Description": "Engineer Bruto Capacity", "Estimation": 5.0},
+        {"Epic Description": mgr_label, "Estimation": 2.0},
+    ]
+    _write_input(p, [_base_row()], config=config)
+    _, _, mgr, _, _ = read_input(p)
+    assert mgr == 2.0
+
+
+@pytest.mark.parametrize("eng_abs_label,mgr_abs_label", [
+    ("Engineer Absence (days)", "Manager Absence (days)"),  # canonical
+    ("Engineers absence", "Managers absence"),              # plural, no "(days)"
+    ("engineer absence", "manager absence"),                # lowercase, no "(days)"
+])
+def test_read_input_accepts_absence_label_variants(
+    tmp_path: Path, eng_abs_label: str, mgr_abs_label: str
+) -> None:
+    p = tmp_path / "input.xlsx"
+    config = _config_rows() + [
+        {"Epic Description": eng_abs_label, "Estimation": 10.0},
+        {"Epic Description": mgr_abs_label, "Estimation": 4.0},
+    ]
+    _write_input(p, [_base_row()], config=config)
+    _, _, _, eng_abs, mgr_abs = read_input(p)
+    assert eng_abs == 10.0
+    assert mgr_abs == 4.0
+
+
+
+# ---------------------------------------------------------------------------
+# read_input: empty row and unnamed row handling
+# ---------------------------------------------------------------------------
+
+def test_read_input_discards_fully_empty_rows(tmp_path: Path) -> None:
+    p = tmp_path / "input.xlsx"
+    rows = _config_rows() + [
+        _base_row(),
+        # fully empty row
+        {"Epic Description": None, "Estimation": None, "Budget Bucket": None,
+         "Type": None, "Link": None, "Priority": None},
+    ]
+    pd.DataFrame(rows).to_excel(p, index=False)
+    epics, _, _, _, _ = read_input(p)
+    assert len(epics) == 1
+    assert epics.iloc[0]["Epic Description"] == "E"
+
+
+def test_read_input_discards_rows_without_epic_description(tmp_path: Path) -> None:
+    p = tmp_path / "input.xlsx"
+    rows = _config_rows() + [
+        _base_row(),
+        # row with data but no Epic Description
+        {"Epic Description": None, "Estimation": 3.0, "Budget Bucket": "Core",
+         "Type": "Feature", "Link": "http://x", "Priority": 2},
+    ]
+    pd.DataFrame(rows).to_excel(p, index=False)
+    epics, _, _, _, _ = read_input(p)
+    assert len(epics) == 1
+
+
+def test_read_input_logs_warning_for_unnamed_rows(tmp_path: Path, caplog) -> None:
+    import logging
+    p = tmp_path / "input.xlsx"
+    rows = _config_rows() + [
+        _base_row(),
+        {"Epic Description": None, "Estimation": 3.0, "Budget Bucket": "Core",
+         "Type": "Feature", "Link": "http://x", "Priority": 2},
+    ]
+    pd.DataFrame(rows).to_excel(p, index=False)
+    with caplog.at_level(logging.WARNING, logger="planzen.excel_io"):
+        read_input(p)
+    assert any("Discarding" in r.message for r in caplog.records)
+
+
+def test_read_input_handles_mixed_empty_and_valid_rows(tmp_path: Path) -> None:
+    """Empty rows scattered between valid rows are all silently dropped."""
+    p = tmp_path / "input.xlsx"
+    rows = _config_rows() + [
+        _base_row(**{"Epic Description": "A", "Priority": 1}),
+        {"Epic Description": None, "Estimation": None},  # empty
+        _base_row(**{"Epic Description": "B", "Priority": 2}),
+        {"Epic Description": None, "Estimation": None},  # empty
+    ]
+    pd.DataFrame(rows).to_excel(p, index=False)
+    epics, _, _, _, _ = read_input(p)
+    assert list(epics["Epic Description"]) == ["A", "B"]
+
+
+# ---------------------------------------------------------------------------
+# validate_input_file: user-friendly error collection
+# ---------------------------------------------------------------------------
+
+def test_validate_returns_empty_for_valid_file(tmp_path: Path) -> None:
+    p = tmp_path / "input.xlsx"
+    _write_input(p, [_base_row()])
+    assert validate_input_file(p) == []
+
+
+def test_validate_reports_unreadable_file(tmp_path: Path) -> None:
+    p = tmp_path / "missing.xlsx"
+    errors = validate_input_file(p)
+    assert len(errors) == 1
+    assert "not found" in errors[0].lower() or "cannot" in errors[0].lower()
+
+
+def test_validate_reports_missing_epic_description_column(tmp_path: Path) -> None:
+    p = tmp_path / "input.xlsx"
+    pd.DataFrame([{"Estimation": 1.0}]).to_excel(p, index=False)
+    errors = validate_input_file(p)
+    assert any("Epic Description" in e for e in errors)
+
+
+def test_validate_reports_missing_engineers_config_row(tmp_path: Path) -> None:
+    p = tmp_path / "input.xlsx"
+    config = [{"Epic Description": "Manager Bruto Capacity", "Estimation": 2.0}]
+    _write_input(p, [_base_row()], config=config)
+    errors = validate_input_file(p)
+    assert any("Engineer Bruto Capacity" in e for e in errors)
+
+
+def test_validate_reports_missing_managers_config_row(tmp_path: Path) -> None:
+    p = tmp_path / "input.xlsx"
+    config = [{"Epic Description": "Engineer Bruto Capacity", "Estimation": 5.0}]
+    _write_input(p, [_base_row()], config=config)
+    errors = validate_input_file(p)
+    assert any("Manager Bruto Capacity" in e for e in errors)
+
+
+def test_validate_reports_non_positive_engineers(tmp_path: Path) -> None:
+    p = tmp_path / "input.xlsx"
+    config = [
+        {"Epic Description": "Engineer Bruto Capacity", "Estimation": 0},
+        {"Epic Description": "Manager Bruto Capacity", "Estimation": 2.0},
+    ]
+    _write_input(p, [_base_row()], config=config)
+    errors = validate_input_file(p)
+    assert any("Engineer Bruto Capacity" in e for e in errors)
+    assert any("greater than 0" in e or "positive" in e.lower() for e in errors)
+
+
+def test_validate_reports_non_numeric_engineers(tmp_path: Path) -> None:
+    p = tmp_path / "input.xlsx"
+    config = [
+        {"Epic Description": "Engineer Bruto Capacity", "Estimation": "lots"},
+        {"Epic Description": "Manager Bruto Capacity", "Estimation": 2.0},
+    ]
+    _write_input(p, [_base_row()], config=config)
+    errors = validate_input_file(p)
+    assert any("Engineer Bruto Capacity" in e for e in errors)
+
+
+def test_validate_reports_negative_absence_days(tmp_path: Path) -> None:
+    p = tmp_path / "input.xlsx"
+    config = _config_rows() + [
+        {"Epic Description": "Engineer Absence (days)", "Estimation": -3},
+    ]
+    _write_input(p, [_base_row()], config=config)
+    errors = validate_input_file(p)
+    assert any("Absence" in e for e in errors)
+    assert any("negative" in e.lower() or ">= 0" in e for e in errors)
+
+
+def test_validate_reports_missing_required_epic_columns(tmp_path: Path) -> None:
+    p = tmp_path / "input.xlsx"
+    rows = _config_rows() + [{"Epic Description": "E", "Estimation": 1.0}]
+    pd.DataFrame(rows).to_excel(p, index=False)
+    errors = validate_input_file(p)
+    assert any("Budget Bucket" in e or "Priority" in e for e in errors)
+
+
+def test_validate_reports_no_epic_rows(tmp_path: Path) -> None:
+    p = tmp_path / "input.xlsx"
+    _write_input(p, [], config=_config_rows())
+    errors = validate_input_file(p)
+    assert any("epic" in e.lower() for e in errors)
+
+
+def test_validate_reports_non_numeric_estimation(tmp_path: Path) -> None:
+    p = tmp_path / "input.xlsx"
+    _write_input(p, [_base_row(**{"Estimation": "TBD"})])
+    errors = validate_input_file(p)
+    assert any("Estimation" in e for e in errors)
+    assert any("numeric" in e.lower() or "number" in e.lower() for e in errors)
+
+
+def test_validate_reports_negative_estimation(tmp_path: Path) -> None:
+    p = tmp_path / "input.xlsx"
+    _write_input(p, [_base_row(**{"Estimation": -1.0})])
+    errors = validate_input_file(p)
+    assert any("Estimation" in e for e in errors)
+
+
+def test_validate_reports_missing_priority(tmp_path: Path) -> None:
+    p = tmp_path / "input.xlsx"
+    row = _base_row()
+    row["Priority"] = None
+    _write_input(p, [row])
+    errors = validate_input_file(p)
+    assert any("Priority" in e for e in errors)
+
+
+def test_validate_collects_multiple_errors(tmp_path: Path) -> None:
+    """All issues are reported at once, not just the first one."""
+    p = tmp_path / "input.xlsx"
+    # No config rows at all, and epic has bad Estimation
+    rows = [{"Epic Description": "E", "Estimation": "TBD", "Budget Bucket": "B",
+             "Type": "F", "Link": "http://x", "Priority": 0}]
+    pd.DataFrame(rows).to_excel(p, index=False)
+    errors = validate_input_file(p)
+    assert len(errors) >= 2  # at least: missing engineers row + bad estimation
 
 
 # ---------------------------------------------------------------------------

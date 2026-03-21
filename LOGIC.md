@@ -2,7 +2,7 @@
 
 | Context | Unit |
 |---|---|
-| Team headcount (`Engineer Bruto Capacity`, `Management Bruto Capacity`) | **FTE** (full-time equivalents; fractions allowed, e.g. 2.5) |
+| Team headcount (`Engineer Bruto Capacity`, `Manager Bruto Capacity`) | **FTE** (full-time equivalents; fractions allowed, e.g. 2.5) |
 | Absence input (`Engineer Absence (days)`, `Manager Absence (days)`) | **working days** — total for the selected quarter |
 | Epic `Estimation` | **Person-Weeks (PW)** — total effort |
 | All output week columns (capacity rows and epic rows) | **PW / week** |
@@ -21,7 +21,7 @@ The user provides a single `.xlsx` file with one sheet. Team config rows appear 
 | `Epic Description` label | `Estimation` value | Unit | Required? |
 |---|---|---|---|
 | `Engineer Bruto Capacity` | e.g. `5.0` | FTE | ✅ |
-| `Management Bruto Capacity` | e.g. `2.0` | FTE | ✅ |
+| `Manager Bruto Capacity` | e.g. `2.0` | FTE | ✅ |
 | `Engineer Absence (days)` | e.g. `10` | working days (quarter total) | optional |
 | `Manager Absence (days)` | e.g. `4` | working days (quarter total) | optional |
 
@@ -29,9 +29,19 @@ When absence is omitted the default formula applies: **37 days/year** (30 vacati
 
 ### Epic columns (required)
 
-`Epic Description`, `Estimation` (PW), `Budget Bucket`, `Type`, `Link`, `Priority`
+### Epic columns
 
-Optional: `Milestone`. Any additional columns are preserved.
+| Column | Required | Unit |
+|---|---|---|
+| `Epic Description` | ✅ | — |
+| `Estimation` | ✅ | PW (total effort) |
+| `Budget Bucket` | ✅ | — |
+| `Link` | ✅ | — |
+| `Priority` | ✅ | — (lower = higher priority) |
+| `Type` | optional | — |
+| `Milestone` | optional | — |
+
+Column order does not matter. Any additional columns are preserved.
 
 ---
 

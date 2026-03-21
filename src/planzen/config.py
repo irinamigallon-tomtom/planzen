@@ -19,7 +19,7 @@ COL_MILESTONE = "Milestone"
 # Team config rows — appear at the top of the epics sheet before the epic data.
 # The Estimation column holds the numeric value for each config row.
 TEAM_LABEL_ENGINEERS      = "Engineer Bruto Capacity"
-TEAM_LABEL_MANAGERS       = "Management Bruto Capacity"
+TEAM_LABEL_MANAGERS       = "Manager Bruto Capacity"
 TEAM_LABEL_ENG_ABSENCE    = "Engineer Absence (days)"   # optional
 TEAM_LABEL_MGMT_ABSENCE   = "Manager Absence (days)"    # optional
 

@@ -7,6 +7,7 @@ All file operations are isolated here; core_logic stays pure.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import openpyxl
@@ -19,7 +20,6 @@ from planzen.config import (
     COL_ESTIMATION,
     COL_LINK,
     COL_PRIORITY,
-    COL_TYPE,
     TEAM_CONFIG_LABELS,
     TEAM_LABEL_ENG_ABSENCE,
     TEAM_LABEL_ENGINEERS,
@@ -43,10 +43,11 @@ REQUIRED_INPUT_COLUMNS = {
     COL_EPIC,
     COL_ESTIMATION,
     COL_BUDGET_BUCKET,
-    COL_TYPE,
     COL_LINK,
     COL_PRIORITY,
 }
+
+_log = logging.getLogger(__name__)
 
 _NON_WEEK_COLS = {
     OUT_COL_BUDGET_BUCKET, OUT_COL_EPIC, OUT_COL_PRIORITY,
@@ -60,9 +61,193 @@ _CAPACITY_LABELS = {
 }
 
 
+def _normalize_config_label(s: object) -> str:
+    """Normalise a config row label for fuzzy matching.
+
+    Applies in order:
+    1. Strip whitespace and lowercase.
+    2. Remove parenthetical suffixes, e.g. ``(days)``.
+    3. Singularize common plural words (trailing *s* on words longer than 3
+       characters) so ``"Engineers"`` and ``"Engineer"`` both match.
+    """
+    if not isinstance(s, str):
+        return ""
+    import re
+    s = s.strip().lower()
+    s = re.sub(r"\s*\(.*?\)", "", s).strip()
+    s = " ".join(
+        w[:-1] if w.endswith("s") and len(w) > 3 else w
+        for w in s.split()
+    )
+    return s
+
+
+# Mapping: normalised canonical label → canonical label string
+_TEAM_CONFIG_LABELS_NORM: dict[str, str] = {
+    _normalize_config_label(label): label
+    for label in TEAM_CONFIG_LABELS
+}
+
 def formulas_path(path: Path) -> Path:
     """Return the sibling path for the formulas variant of an output file."""
     return path.with_stem(path.stem + "_formulas")
+
+
+def validate_input_file(path: Path) -> list[str]:
+    """
+    Validate the input Excel file and return a list of human-readable error
+    messages.  An empty list means the file is valid.
+
+    All issues are collected before returning so the user sees everything at
+    once rather than fixing one problem at a time.
+    """
+    errors: list[str] = []
+
+    # --- file-level ---
+    if not path.exists():
+        errors.append(
+            f"File not found: '{path}'\n"
+            "  → Check the path and make sure the file exists."
+        )
+        return errors  # nothing else can be checked
+
+    try:
+        df = pd.read_excel(path)
+    except Exception as exc:
+        errors.append(
+            f"Cannot read '{path}' as an Excel file: {exc}\n"
+            "  → Make sure the file is a valid .xlsx workbook and is not open in Excel."
+        )
+        return errors
+
+    # --- required structural columns ---
+    for col in (COL_EPIC, COL_ESTIMATION):
+        if col not in df.columns:
+            errors.append(
+                f"Missing required column: \"{col}\"\n"
+                f"  → Add a column with this exact header name."
+            )
+
+    if errors:
+        return errors  # can't proceed without these two columns
+
+    # --- team config rows (normalised matching) ---
+    epic_norm = df[COL_EPIC].apply(_normalize_config_label)
+    config_mask = epic_norm.isin(_TEAM_CONFIG_LABELS_NORM)
+    config_rows = df[config_mask].copy()
+    config_rows[COL_EPIC] = epic_norm[config_mask].map(_TEAM_CONFIG_LABELS_NORM)
+    config_df = config_rows.set_index(COL_EPIC)[COL_ESTIMATION]
+
+    for label, hint in [
+        (
+            TEAM_LABEL_ENGINEERS,
+            f'Add a row where "{COL_EPIC}" = "{TEAM_LABEL_ENGINEERS}" '
+            'and "Estimation" = the number of full-time engineers (e.g. 5).',
+        ),
+        (
+            TEAM_LABEL_MANAGERS,
+            f'Add a row where "{COL_EPIC}" = "{TEAM_LABEL_MANAGERS}" '
+            'and "Estimation" = the number of line managers (e.g. 2).',
+        ),
+    ]:
+        if label not in config_df.index:
+            errors.append(f'Missing required config row: "{label}"\n  → {hint}')
+        else:
+            val = config_df[label]
+            try:
+                fval = float(val)
+                if fval <= 0:
+                    errors.append(
+                        f'"{label}" must be greater than 0 (got {val!r}).\n'
+                        "  → Enter the number of FTE team members, e.g. 5."
+                    )
+            except (TypeError, ValueError):
+                errors.append(
+                    f'"{label}" must be a number (got {val!r}).\n'
+                    "  → Enter the number of FTE team members, e.g. 5."
+                )
+
+    for label in (TEAM_LABEL_ENG_ABSENCE, TEAM_LABEL_MGMT_ABSENCE):
+        if label in config_df.index and pd.notna(config_df[label]):
+            val = config_df[label]
+            try:
+                fval = float(val)
+                if fval < 0:
+                    errors.append(
+                        f'"{label}" cannot be negative (got {val!r}).\n'
+                        "  → Enter the total absence days for the quarter, e.g. 10."
+                        " Use 0 if none, or omit the row to use the default."
+                    )
+            except (TypeError, ValueError):
+                errors.append(
+                    f'"{label}" must be a number (got {val!r}).\n'
+                    "  → Enter the total absence days for the quarter, e.g. 10."
+                )
+
+    # --- epic rows --- (apply same filtering as read_input)
+    epics_df = df[~config_mask].reset_index(drop=True)
+    epics_df = epics_df.dropna(how="all").reset_index(drop=True)
+    epics_df = epics_df[epics_df[COL_EPIC].notna()].reset_index(drop=True)
+
+    missing_cols = (REQUIRED_INPUT_COLUMNS - {COL_EPIC, COL_ESTIMATION}) - set(epics_df.columns)
+    if missing_cols:
+        for col in sorted(missing_cols):
+            errors.append(
+                f'Missing required epic column: "{col}"\n'
+                "  → Add a column with this exact header name."
+            )
+
+    if len(epics_df) == 0:
+        errors.append(
+            "No epic rows found after the config rows.\n"
+            "  → Add at least one epic row below the team config rows."
+        )
+        return errors
+
+    # --- per-row epic data ---
+    if COL_ESTIMATION in epics_df.columns:
+        for i, row in epics_df.iterrows():
+            val = row[COL_ESTIMATION]
+            name = row.get(COL_EPIC, f"row {i + 1}")
+            if pd.isna(val):
+                errors.append(
+                    f'Epic "{name}": "Estimation" is empty.\n'
+                    "  → Enter the total effort in Person-Weeks, e.g. 4.5."
+                )
+            else:
+                try:
+                    fval = float(val)
+                    if fval < 0:
+                        errors.append(
+                            f'Epic "{name}": "Estimation" cannot be negative (got {val!r}).\n'
+                            "  → Enter the total effort in Person-Weeks, e.g. 4.5."
+                        )
+                except (TypeError, ValueError):
+                    errors.append(
+                        f'Epic "{name}": "Estimation" must be a number (got {val!r}).\n'
+                        "  → Enter the total effort in Person-Weeks, e.g. 4.5."
+                    )
+
+    if COL_PRIORITY in epics_df.columns:
+        for i, row in epics_df.iterrows():
+            val = row[COL_PRIORITY]
+            name = row.get(COL_EPIC, f"row {i + 1}")
+            if pd.isna(val):
+                errors.append(
+                    f'Epic "{name}": "Priority" is empty.\n'
+                    "  → Enter a numeric priority (e.g. 1 = highest). "
+                    "Lower numbers are scheduled first."
+                )
+            else:
+                try:
+                    float(val)
+                except (TypeError, ValueError):
+                    errors.append(
+                        f'Epic "{name}": "Priority" must be a number (got {val!r}).\n'
+                        "  → Enter a numeric priority, e.g. 1."
+                    )
+
+    return errors
 
 
 def read_input(path: Path) -> tuple[
@@ -79,7 +264,7 @@ def read_input(path: Path) -> tuple[
     data.  Recognised config labels (in the ``Epic Description`` column):
 
     - ``Engineer Bruto Capacity``  *(required)*
-    - ``Management Bruto Capacity`` *(required)*
+    - ``Manager Bruto Capacity`` *(required)*
     - ``Engineer Absence (days)``  *(optional — total days for the quarter)*
     - ``Manager Absence (days)``   *(optional — total days for the quarter)*
 
@@ -99,9 +284,12 @@ def read_input(path: Path) -> tuple[
             f"Input file must have '{COL_EPIC}' and '{COL_ESTIMATION}' columns."
         )
 
-    # --- extract team config rows ---
-    config_mask = df[COL_EPIC].isin(TEAM_CONFIG_LABELS)
-    config_df = df[config_mask].set_index(COL_EPIC)[COL_ESTIMATION]
+    # --- extract team config rows (normalised matching) ---
+    epic_norm = df[COL_EPIC].apply(_normalize_config_label)
+    config_mask = epic_norm.isin(_TEAM_CONFIG_LABELS_NORM)
+    config_rows = df[config_mask].copy()
+    config_rows[COL_EPIC] = epic_norm[config_mask].map(_TEAM_CONFIG_LABELS_NORM)
+    config_df = config_rows.set_index(COL_EPIC)[COL_ESTIMATION]
 
     if TEAM_LABEL_ENGINEERS not in config_df.index:
         raise ValueError(
@@ -129,6 +317,21 @@ def read_input(path: Path) -> tuple[
 
     # --- epic rows (everything that isn't a config row) ---
     epics_df = df[~config_mask].reset_index(drop=True)
+
+    # Drop fully-empty rows silently.
+    epics_df = epics_df.dropna(how="all").reset_index(drop=True)
+
+    # Rows that have no Epic Description are unusable; log and discard.
+    no_description = epics_df[COL_EPIC].isna()
+    if no_description.any():
+        count = int(no_description.sum())
+        _log.warning(
+            "Discarding %d row(s) with no '%s' value — "
+            "these rows will be ignored.",
+            count,
+            COL_EPIC,
+        )
+        epics_df = epics_df[~no_description].reset_index(drop=True)
 
     missing = REQUIRED_INPUT_COLUMNS - set(epics_df.columns)
     if missing:
