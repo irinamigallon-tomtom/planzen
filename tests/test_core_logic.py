@@ -15,10 +15,12 @@ from planzen.core_logic import (
     validate_allocation,
 )
 from planzen.config import (
+    LABEL_CAPACITY_ALERT_ROW,
     LABEL_ENG_NET,
     LABEL_TOTAL_ROW,
     OUT_COL_EPIC,
     OUT_COL_ESTIMATION,
+    OUT_COL_OFF_ESTIMATE,
     OUT_COL_TOTAL_WEEKS,
 )
 
@@ -106,8 +108,8 @@ def test_each_quarter_has_13_mondays() -> None:
 
 def test_output_has_correct_number_of_rows() -> None:
     df = _build()
-    # 6 capacity header rows + 2 epic rows + 1 total row
-    assert len(df) == 9
+    # 6 capacity header rows + 2 epic rows + 1 total row + 1 off-capacity row
+    assert len(df) == 10
 
 
 def test_week_columns_are_present() -> None:
@@ -122,7 +124,7 @@ def test_epic_total_does_not_exceed_estimation() -> None:
     header_labels = {
         "Engineer Capacity (Bruto)", "Engineer Absence", "Engineer Net Capacity",
         "Management Capacity", "Management Absence", "Management Net Capacity",
-        "Weekly Allocation",
+        "Weekly Allocation", "Off Capacity",
     }
     epic_rows = df[~df[OUT_COL_EPIC].isin(header_labels)]
     for _, row in epic_rows.iterrows():
@@ -134,9 +136,33 @@ def test_weekly_total_does_not_exceed_net_capacity() -> None:
     net_capacity_row = df[df[OUT_COL_EPIC] == LABEL_ENG_NET].iloc[0]
     total_row = df[df[OUT_COL_EPIC] == LABEL_TOTAL_ROW].iloc[0]
     week_cols = [c for c in df.columns if c not in
-                 {"Budget Bucket", "Epic / Capacity Metric", "Priority", "Estimation", "Total Weeks"}]
+                 {"Budget Bucket", "Epic / Capacity Metric", "Priority", "Estimation", "Total Weeks", "Off Estimate"}]
     for w in week_cols:
         assert total_row[w] <= net_capacity_row[w] + 1e-9
+
+
+def test_total_row_estimation_is_sum_of_epics() -> None:
+    df = _build()
+    total_row = df[df[OUT_COL_EPIC] == LABEL_TOTAL_ROW].iloc[0]
+    epic_rows = df[~df[OUT_COL_EPIC].isin({
+        "Engineer Capacity (Bruto)", "Engineer Absence", "Engineer Net Capacity",
+        "Management Capacity", "Management Absence", "Management Net Capacity",
+        "Weekly Allocation", "Off Capacity",
+    })]
+    expected = round(epic_rows[OUT_COL_ESTIMATION].sum(), 1)
+    assert total_row[OUT_COL_ESTIMATION] == pytest.approx(expected, abs=1e-6)
+
+
+def test_total_row_total_weeks_is_sum_of_epics() -> None:
+    df = _build()
+    total_row = df[df[OUT_COL_EPIC] == LABEL_TOTAL_ROW].iloc[0]
+    epic_rows = df[~df[OUT_COL_EPIC].isin({
+        "Engineer Capacity (Bruto)", "Engineer Absence", "Engineer Net Capacity",
+        "Management Capacity", "Management Absence", "Management Net Capacity",
+        "Weekly Allocation", "Off Capacity",
+    })]
+    expected = round(epic_rows[OUT_COL_TOTAL_WEEKS].sum(), 1)
+    assert total_row[OUT_COL_TOTAL_WEEKS] == pytest.approx(expected, abs=1e-6)
 
 
 def test_eng_net_capacity_is_bruto_minus_absence() -> None:
@@ -184,7 +210,7 @@ def test_epics_sorted_by_priority_in_output() -> None:
     header_labels = {
         "Engineer Capacity (Bruto)", "Engineer Absence", "Engineer Net Capacity",
         "Management Capacity", "Management Absence", "Management Net Capacity",
-        "Weekly Allocation",
+        "Weekly Allocation", "Off Capacity",
     }
     epic_rows = df[~df[OUT_COL_EPIC].isin(header_labels)]
     priorities = list(epic_rows["Priority"])
@@ -199,7 +225,7 @@ def test_no_gap_when_capacity_available() -> None:
     }])
     df = build_output_table(single_epic, CAPACITY, START, END)
     week_cols = [c for c in df.columns if c not in
-                 {"Budget Bucket", "Epic / Capacity Metric", "Priority", "Estimation", "Total Weeks"}]
+                 {"Budget Bucket", "Epic / Capacity Metric", "Priority", "Estimation", "Total Weeks", "Off Estimate"}]
     epic_row = df[df[OUT_COL_EPIC] == "Solo Epic"].iloc[0]
     net_row = df[df[OUT_COL_EPIC] == LABEL_ENG_NET].iloc[0]
 
@@ -218,7 +244,7 @@ def test_gap_admissible_when_capacity_exhausted() -> None:
     ])
     df = build_output_table(greedy_epics, CAPACITY, START, END)
     week_cols = [c for c in df.columns if c not in
-                 {"Budget Bucket", "Epic / Capacity Metric", "Priority", "Estimation", "Total Weeks"}]
+                 {"Budget Bucket", "Epic / Capacity Metric", "Priority", "Estimation", "Total Weeks", "Off Estimate"}]
     greedy_row = df[df[OUT_COL_EPIC] == "Greedy"].iloc[0]
     starved_row = df[df[OUT_COL_EPIC] == "Starved"].iloc[0]
     net_row = df[df[OUT_COL_EPIC] == LABEL_ENG_NET].iloc[0]
@@ -243,7 +269,7 @@ def test_validate_allocation_passes_for_valid_output() -> None:
 def test_validate_allocation_detects_epic_overallocation() -> None:
     df = _build()
     week_cols = [c for c in df.columns if c not in
-                 {"Budget Bucket", "Epic / Capacity Metric", "Priority", "Estimation", "Total Weeks"}]
+                 {"Budget Bucket", "Epic / Capacity Metric", "Priority", "Estimation", "Total Weeks", "Off Estimate"}]
     epic_mask = df[OUT_COL_EPIC] == "Auth & Identity Management"
     df.loc[epic_mask, week_cols[0]] = 9999.0
     df.loc[epic_mask, OUT_COL_TOTAL_WEEKS] = 9999.0
@@ -254,11 +280,11 @@ def test_validate_allocation_detects_epic_overallocation() -> None:
 def test_validate_allocation_detects_weekly_overallocation() -> None:
     df = _build()
     week_cols = [c for c in df.columns if c not in
-                 {"Budget Bucket", "Epic / Capacity Metric", "Priority", "Estimation", "Total Weeks"}]
+                 {"Budget Bucket", "Epic / Capacity Metric", "Priority", "Estimation", "Total Weeks", "Off Estimate"}]
     epic_mask = ~df[OUT_COL_EPIC].isin({
         "Engineer Capacity (Bruto)", "Engineer Absence", "Engineer Net Capacity",
         "Management Capacity", "Management Absence", "Management Net Capacity",
-        "Weekly Allocation",
+        "Weekly Allocation", "Off Capacity",
     })
     df.loc[epic_mask, week_cols[0]] = 9999.0
     violations = validate_allocation(df, CAPACITY)
@@ -277,7 +303,76 @@ def test_overflow_scenario_is_valid() -> None:
     assert violations == [], f"Unexpected violations: {violations}"
 
     week_cols = [c for c in df.columns if c not in
-                 {"Budget Bucket", "Epic / Capacity Metric", "Priority", "Estimation", "Total Weeks"}]
+                 {"Budget Bucket", "Epic / Capacity Metric", "Priority", "Estimation", "Total Weeks", "Off Estimate"}]
     epic_row = df[df[OUT_COL_EPIC] == "Huge Epic"].iloc[0]
     assert epic_row[OUT_COL_TOTAL_WEEKS] <= 999.0
     assert epic_row[OUT_COL_TOTAL_WEEKS] <= capacity.eng_net * len(week_cols) + 1e-9
+
+
+# ---------------------------------------------------------------------------
+# Off Estimate and Off Capacity tests
+# ---------------------------------------------------------------------------
+
+def test_off_estimate_true_when_partially_allocated() -> None:
+    """Epic that can't be fully allocated (estimation >> capacity) has Off Estimate = True."""
+    df = _build()
+    # EPICS_DF has 80 PW and 40 PW epics; with 4 weeks they are never fully allocated
+    epic_rows = df[~df[OUT_COL_EPIC].isin({
+        "Engineer Capacity (Bruto)", "Engineer Absence", "Engineer Net Capacity",
+        "Management Capacity", "Management Absence", "Management Net Capacity",
+        "Weekly Allocation", "Off Capacity",
+    })]
+    for _, row in epic_rows.iterrows():
+        assert row[OUT_COL_OFF_ESTIMATE] is True
+
+
+def test_off_estimate_false_when_exactly_allocated() -> None:
+    """Epic whose total weeks equals estimation has Off Estimate = False."""
+    # estimation=0.2 PW, 4 weeks, capacity=4.3/week -> fully allocated in ~1 week
+    tiny_epic = pd.DataFrame([{
+        "Epic Description": "Tiny",
+        "Estimation": 0.2,
+        "Budget Bucket": "Core",
+        "Type": "Feature",
+        "Link": "link",
+        "Priority": 0,
+        "Milestone": "Q1",
+    }])
+    df = build_output_table(tiny_epic, CAPACITY, START, END)
+    epic_row = df[df[OUT_COL_EPIC] == "Tiny"].iloc[0]
+    assert epic_row[OUT_COL_OFF_ESTIMATE] is False
+
+
+def test_off_capacity_true_when_weekly_total_differs() -> None:
+    """Off Capacity = True when weekly total deviates from eng_net by > 0.1."""
+    df = _build()
+    alert_row = df[df[OUT_COL_EPIC] == LABEL_CAPACITY_ALERT_ROW].iloc[0]
+    week_cols = [c for c in df.columns if c not in
+                 {"Budget Bucket", "Epic / Capacity Metric", "Priority", "Estimation",
+                  "Total Weeks", "Off Estimate"}]
+    # With two sprint epics (2.0/week each = 4.0 total) vs eng_net=4.3, all weeks are off
+    for w in week_cols:
+        assert alert_row[w] is True
+
+
+def test_off_capacity_false_when_weekly_total_at_capacity() -> None:
+    """Off Capacity = False when weekly total is within 0.1 of eng_net."""
+    # eng_net for 1 engineer = 1.0 - round(1 * 0.1423, 1) = 1.0 - 0.1 = 0.9 PW/week
+    # estimation = 0.9 * 4 = 3.6 PW, weekly_ideal = round(3.6/4, 1) = 0.9 → 4×0.9=3.6 = est
+    cap = CapacityConfig(num_engineers=1, num_managers=0)
+    exact_epic = pd.DataFrame([{
+        "Epic Description": "Exact",
+        "Estimation": 3.6,
+        "Budget Bucket": "Core",
+        "Type": "Feature",
+        "Link": "link",
+        "Priority": 0,
+        "Milestone": "Q1",
+    }])
+    df = build_output_table(exact_epic, cap, START, END)
+    alert_row = df[df[OUT_COL_EPIC] == LABEL_CAPACITY_ALERT_ROW].iloc[0]
+    week_cols = [c for c in df.columns if c not in
+                 {"Budget Bucket", "Epic / Capacity Metric", "Priority", "Estimation",
+                  "Total Weeks", "Off Estimate"}]
+    for w in week_cols:
+        assert alert_row[w] is False

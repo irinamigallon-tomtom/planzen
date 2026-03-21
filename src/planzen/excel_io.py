@@ -25,6 +25,7 @@ from planzen.config import (
     TEAM_LABEL_ENGINEERS,
     TEAM_LABEL_MGMT_ABSENCE,
     TEAM_LABEL_MANAGERS,
+    LABEL_CAPACITY_ALERT_ROW,
     LABEL_ENG_ABSENCE,
     LABEL_ENG_BRUTO,
     LABEL_ENG_NET,
@@ -35,6 +36,7 @@ from planzen.config import (
     OUT_COL_BUDGET_BUCKET,
     OUT_COL_EPIC,
     OUT_COL_ESTIMATION,
+    OUT_COL_OFF_ESTIMATE,
     OUT_COL_PRIORITY,
     OUT_COL_TOTAL_WEEKS,
 )
@@ -51,13 +53,13 @@ _log = logging.getLogger(__name__)
 
 _NON_WEEK_COLS = {
     OUT_COL_BUDGET_BUCKET, OUT_COL_EPIC, OUT_COL_PRIORITY,
-    OUT_COL_ESTIMATION, OUT_COL_TOTAL_WEEKS,
+    OUT_COL_ESTIMATION, OUT_COL_TOTAL_WEEKS, OUT_COL_OFF_ESTIMATE,
 }
 
 _CAPACITY_LABELS = {
     LABEL_ENG_BRUTO, LABEL_ENG_ABSENCE, LABEL_ENG_NET,
     LABEL_MGMT_CAPACITY, LABEL_MGMT_ABSENCE, LABEL_MGMT_NET,
-    LABEL_TOTAL_ROW,
+    LABEL_TOTAL_ROW, LABEL_CAPACITY_ALERT_ROW,
 }
 
 
@@ -414,6 +416,32 @@ def write_output_with_formulas(df: pd.DataFrame, path: Path) -> None:
         cl = get_column_letter(ci)
         ws.cell(r_total, ci).value = (
             f"=SUM({cl}{first_epic_row}:{cl}{last_epic_row})"
+        )
+
+    # Total row Estimation and Total Weeks: sum over all epic rows
+    estimation_col_idx = col_names.index(OUT_COL_ESTIMATION) + 1
+    estimation_col_letter = get_column_letter(estimation_col_idx)
+    total_weeks_col_letter = get_column_letter(total_weeks_col_idx)
+    ws.cell(r_total, estimation_col_idx).value = (
+        f"=SUM({estimation_col_letter}{first_epic_row}:{estimation_col_letter}{last_epic_row})"
+    )
+    ws.cell(r_total, total_weeks_col_idx).value = (
+        f"=SUM({total_weeks_col_letter}{first_epic_row}:{total_weeks_col_letter}{last_epic_row})"
+    )
+
+    # Off Estimate column (epic rows only): =ABS(<total_weeks_cell>-<estimation_cell>)>0.05
+    off_estimate_col_idx = col_names.index(OUT_COL_OFF_ESTIMATE) + 1
+    for er in epic_excel_rows:
+        ws.cell(er, off_estimate_col_idx).value = (
+            f"=ABS({total_weeks_col_letter}{er}-{estimation_col_letter}{er})>0.05"
+        )
+
+    # Off Capacity row (week columns): =ABS(<weekly_alloc_cell>-<eng_net_cell>)>0.1
+    r_capacity_alert = excel_row(LABEL_CAPACITY_ALERT_ROW)
+    for ci in week_col_indices:
+        cl = get_column_letter(ci)
+        ws.cell(r_capacity_alert, ci).value = (
+            f"=ABS({cl}{r_total}-{cl}{r_eng_net})>0.1"
         )
 
     wb.save(path)

@@ -18,6 +18,7 @@ from openpyxl.utils import get_column_letter
 
 from planzen.config import (
     FISCAL_QUARTERS,
+    LABEL_CAPACITY_ALERT_ROW,
     LABEL_ENG_ABSENCE,
     LABEL_ENG_BRUTO,
     LABEL_ENG_NET,
@@ -26,6 +27,8 @@ from planzen.config import (
     LABEL_MGMT_NET,
     LABEL_TOTAL_ROW,
     OUT_COL_EPIC,
+    OUT_COL_ESTIMATION,
+    OUT_COL_OFF_ESTIMATE,
     OUT_COL_TOTAL_WEEKS,
 )
 from planzen.core_logic import CapacityConfig, build_output_table
@@ -50,7 +53,7 @@ _EPICS = pd.DataFrame([
 _CAPACITY_LABELS = {
     LABEL_ENG_BRUTO, LABEL_ENG_ABSENCE, LABEL_ENG_NET,
     LABEL_MGMT_CAPACITY, LABEL_MGMT_ABSENCE, LABEL_MGMT_NET,
-    LABEL_TOTAL_ROW,
+    LABEL_TOTAL_ROW, LABEL_CAPACITY_ALERT_ROW,
 }
 
 
@@ -99,7 +102,7 @@ def _find_row(ws, label: str, label_col: int = 2) -> int:
 
 def _week_cols(ws, header_row: int = 1) -> list[int]:
     """Return 1-based column indices for all week columns (non-metadata columns)."""
-    non_week = {"Budget Bucket", "Epic / Capacity Metric", "Priority", "Estimation", "Total Weeks"}
+    non_week = {"Budget Bucket", "Epic / Capacity Metric", "Priority", "Estimation", "Total Weeks", "Off Estimate"}
     return [
         cell.column for cell in ws[header_row]
         if cell.value not in non_week and cell.value is not None
@@ -586,6 +589,57 @@ def test_formulas_file_weekly_allocation_is_sum_formula(formulas_file: Path) -> 
         )
 
 
+def test_formulas_file_total_row_estimation_is_sum_formula(formulas_file: Path) -> None:
+    wb = openpyxl.load_workbook(formulas_file, data_only=False)
+    ws = wb.active
+    total_row = _find_row(ws, LABEL_TOTAL_ROW)
+    # Find Estimation column index
+    est_col = next(
+        c for c in range(1, ws.max_column + 1)
+        if ws.cell(1, c).value == OUT_COL_ESTIMATION
+    )
+    val = ws.cell(total_row, est_col).value
+    assert isinstance(val, str) and val.upper().startswith("=SUM("), (
+        f"Total row Estimation should be =SUM(...), got {val!r}"
+    )
+
+
+def test_formulas_file_total_row_total_weeks_is_sum_formula(formulas_file: Path) -> None:
+    wb = openpyxl.load_workbook(formulas_file, data_only=False)
+    ws = wb.active
+    total_row = _find_row(ws, LABEL_TOTAL_ROW)
+    tw_col = _total_weeks_col(ws)
+    val = ws.cell(total_row, tw_col).value
+    assert isinstance(val, str) and val.upper().startswith("=SUM("), (
+        f"Total row Total Weeks should be =SUM(...), got {val!r}"
+    )
+
+
+def test_values_file_total_row_estimation_is_numeric(values_file: Path) -> None:
+    wb = openpyxl.load_workbook(values_file, data_only=True)
+    ws = wb.active
+    total_row = _find_row(ws, LABEL_TOTAL_ROW)
+    est_col = next(
+        c for c in range(1, ws.max_column + 1)
+        if ws.cell(1, c).value == OUT_COL_ESTIMATION
+    )
+    val = ws.cell(total_row, est_col).value
+    assert isinstance(val, (int, float)), (
+        f"Total row Estimation should be numeric in values file, got {val!r}"
+    )
+
+
+def test_values_file_total_row_total_weeks_is_numeric(values_file: Path) -> None:
+    wb = openpyxl.load_workbook(values_file, data_only=True)
+    ws = wb.active
+    total_row = _find_row(ws, LABEL_TOTAL_ROW)
+    tw_col = _total_weeks_col(ws)
+    val = ws.cell(total_row, tw_col).value
+    assert isinstance(val, (int, float)), (
+        f"Total row Total Weeks should be numeric in values file, got {val!r}"
+    )
+
+
 def test_formulas_eng_net_references_correct_rows(formulas_file: Path) -> None:
     """Spot-check: Eng Net formula references Eng Bruto and Eng Absence rows."""
     wb = openpyxl.load_workbook(formulas_file, data_only=False)
@@ -722,4 +776,62 @@ def test_net_capacity_formulas_reference_fixed_header_rows(n_epics: int, tmp_pat
         )
         assert mgmt_formula == f"={cl}{r_mgmt_cap}-{cl}{r_mgmt_absence}", (
             f"n_epics={n_epics}: Mgmt Net formula wrong: {mgmt_formula!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Off Estimate column and Off Capacity row tests
+# ---------------------------------------------------------------------------
+
+def test_values_file_off_estimate_column_is_boolean(values_file: Path) -> None:
+    wb = openpyxl.load_workbook(values_file, data_only=True)
+    ws = wb.active
+    off_est_col = next(
+        c for c in range(1, ws.max_column + 1)
+        if ws.cell(1, c).value == OUT_COL_OFF_ESTIMATE
+    )
+    for row in ws.iter_rows(min_row=2):
+        label = row[1].value
+        if label not in _CAPACITY_LABELS and label is not None:
+            val = ws.cell(row[0].row, off_est_col).value
+            assert isinstance(val, bool), (
+                f"Off Estimate for '{label}' should be bool, got {val!r}"
+            )
+
+
+def test_values_file_off_capacity_row_is_boolean(values_file: Path) -> None:
+    wb = openpyxl.load_workbook(values_file, data_only=True)
+    ws = wb.active
+    alert_row = _find_row(ws, LABEL_CAPACITY_ALERT_ROW)
+    for col_idx in _week_cols(ws):
+        val = ws.cell(alert_row, col_idx).value
+        assert isinstance(val, bool), (
+            f"Off Capacity cell ({alert_row},{col_idx}) should be bool, got {val!r}"
+        )
+
+
+def test_formulas_file_off_estimate_has_abs_formula(formulas_file: Path) -> None:
+    wb = openpyxl.load_workbook(formulas_file, data_only=False)
+    ws = wb.active
+    off_est_col = next(
+        c for c in range(1, ws.max_column + 1)
+        if ws.cell(1, c).value == OUT_COL_OFF_ESTIMATE
+    )
+    for row in ws.iter_rows(min_row=2):
+        label = row[1].value
+        if label not in _CAPACITY_LABELS and label is not None:
+            val = ws.cell(row[0].row, off_est_col).value
+            assert isinstance(val, str) and "ABS" in val.upper(), (
+                f"Off Estimate for '{label}' should be =ABS(...) formula, got {val!r}"
+            )
+
+
+def test_formulas_file_off_capacity_has_abs_formula(formulas_file: Path) -> None:
+    wb = openpyxl.load_workbook(formulas_file, data_only=False)
+    ws = wb.active
+    alert_row = _find_row(ws, LABEL_CAPACITY_ALERT_ROW)
+    for col_idx in _week_cols(ws):
+        val = ws.cell(alert_row, col_idx).value
+        assert isinstance(val, str) and "ABS" in val.upper(), (
+            f"Off Capacity cell ({alert_row},{col_idx}) should be =ABS(...) formula, got {val!r}"
         )

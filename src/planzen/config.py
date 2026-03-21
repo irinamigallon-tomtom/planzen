@@ -46,6 +46,9 @@ LABEL_MGMT_ABSENCE = "Management Absence"
 LABEL_MGMT_NET = "Management Net Capacity"
 LABEL_TOTAL_ROW = "Weekly Allocation"
 LABEL_TOTAL_BUCKET = "Total"
+LABEL_CAPACITY_ALERT_ROW = "Off Capacity"
+
+OUT_COL_OFF_ESTIMATE = "Off Estimate"
 
 ABSENCE_DAYS_PER_YEAR = 37
 WORKING_WEEKS_PER_YEAR = 52

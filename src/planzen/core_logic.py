@@ -19,6 +19,7 @@ from planzen.config import (
     COL_ESTIMATION,
     COL_PRIORITY,
     FISCAL_QUARTERS,
+    LABEL_CAPACITY_ALERT_ROW,
     LABEL_ENG_ABSENCE,
     LABEL_ENG_BRUTO,
     LABEL_ENG_NET,
@@ -30,6 +31,7 @@ from planzen.config import (
     OUT_COL_BUDGET_BUCKET,
     OUT_COL_EPIC,
     OUT_COL_ESTIMATION,
+    OUT_COL_OFF_ESTIMATE,
     OUT_COL_PRIORITY,
     OUT_COL_TOTAL_WEEKS,
 )
@@ -37,7 +39,7 @@ from planzen.config import (
 _NON_EPIC_LABELS = frozenset({
     LABEL_ENG_BRUTO, LABEL_ENG_ABSENCE, LABEL_ENG_NET,
     LABEL_MGMT_CAPACITY, LABEL_MGMT_ABSENCE, LABEL_MGMT_NET,
-    LABEL_TOTAL_ROW,
+    LABEL_TOTAL_ROW, LABEL_CAPACITY_ALERT_ROW,
 })
 
 
@@ -130,7 +132,7 @@ def validate_allocation(
     """
     non_week = {
         OUT_COL_BUDGET_BUCKET, OUT_COL_EPIC, OUT_COL_PRIORITY,
-        OUT_COL_ESTIMATION, OUT_COL_TOTAL_WEEKS,
+        OUT_COL_ESTIMATION, OUT_COL_TOTAL_WEEKS, OUT_COL_OFF_ESTIMATE,
     }
     week_cols = [c for c in output_df.columns if c not in non_week]
     epic_rows = output_df[~output_df[OUT_COL_EPIC].isin(_NON_EPIC_LABELS)]
@@ -190,14 +192,16 @@ def build_output_table(
 
     # --- sanity-check the allocator output (violations indicate a logic bug) ---
     total_row = _build_total_row(epic_rows, week_labels)
+    capacity_alert_row = _build_capacity_alert_row(total_row, capacity.eng_net, week_labels)
 
-    rows = capacity_rows + epic_rows + [total_row]
+    rows = capacity_rows + epic_rows + [total_row, capacity_alert_row]
     columns = [
         OUT_COL_BUDGET_BUCKET,
         OUT_COL_EPIC,
         OUT_COL_PRIORITY,
         OUT_COL_ESTIMATION,
         OUT_COL_TOTAL_WEEKS,
+        OUT_COL_OFF_ESTIMATE,
         *week_labels,
     ]
     result = pd.DataFrame(rows, columns=columns)
@@ -227,6 +231,7 @@ def _build_capacity_rows(
             OUT_COL_PRIORITY: "",
             OUT_COL_ESTIMATION: "",
             OUT_COL_TOTAL_WEEKS: "",
+            OUT_COL_OFF_ESTIMATE: "",
         }
         base.update({w: value for w in week_labels})
         return base
@@ -291,12 +296,14 @@ def _allocate_epics(
             total_allocated = round(total_allocated + alloc, 1)
 
         total_weeks = round(sum(allocations), 1)
+        off_estimate = abs(round(total_weeks - estimation, 10)) > 0.05
         row: dict = {
             OUT_COL_BUDGET_BUCKET: epic[COL_BUDGET_BUCKET],
             OUT_COL_EPIC: epic[COL_EPIC],
             OUT_COL_PRIORITY: epic.get(COL_PRIORITY, ""),
             OUT_COL_ESTIMATION: estimation,
             OUT_COL_TOTAL_WEEKS: total_weeks,
+            OUT_COL_OFF_ESTIMATE: off_estimate,
         }
         row.update(dict(zip(week_labels, allocations)))
         rows.append(row)
@@ -309,9 +316,25 @@ def _build_total_row(epic_rows: list[dict], week_labels: list[str]) -> dict:
         OUT_COL_BUDGET_BUCKET: LABEL_TOTAL_BUCKET,
         OUT_COL_EPIC: LABEL_TOTAL_ROW,
         OUT_COL_PRIORITY: "",
-        OUT_COL_ESTIMATION: "",
-        OUT_COL_TOTAL_WEEKS: "",
+        OUT_COL_ESTIMATION: round(sum(r[OUT_COL_ESTIMATION] for r in epic_rows), 1),
+        OUT_COL_TOTAL_WEEKS: round(sum(r[OUT_COL_TOTAL_WEEKS] for r in epic_rows), 1),
+        OUT_COL_OFF_ESTIMATE: "",
     }
     for w in week_labels:
         row[w] = round(sum(r[w] for r in epic_rows), 1)
+    return row
+
+
+def _build_capacity_alert_row(total_row: dict, eng_net: float, week_labels: list[str]) -> dict:
+    row: dict = {
+        OUT_COL_BUDGET_BUCKET: "",
+        OUT_COL_EPIC: LABEL_CAPACITY_ALERT_ROW,
+        OUT_COL_PRIORITY: "",
+        OUT_COL_ESTIMATION: "",
+        OUT_COL_TOTAL_WEEKS: "",
+        OUT_COL_OFF_ESTIMATE: "",
+    }
+    for w in week_labels:
+        weekly_total = float(total_row[w])
+        row[w] = abs(round(weekly_total - eng_net, 10)) > 0.1
     return row
