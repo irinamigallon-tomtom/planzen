@@ -79,9 +79,9 @@ The output is an Excel file (`.xlsx`) with a single sheet named **Allocation**.
 
 | Row label | Description |
 |---|---|
-| `Engineering Capacity (Bruto)` | `E × 1 PW` |
-| `Engineering Absence` | `E × 0.142 PW` (37 days/year = 0.71 days/week ÷ 5) |
-| Engineering Net Capacity | Bruto − Absence; this is the weekly budget for Epic allocation |
+| `Engineer Capacity (Bruto)` | `E × 1 PW` |
+| `Engineer Absence` | `E × 0.142 PW` (37 days/year = 0.71 days/week ÷ 5) |
+| Engineer Net Capacity | Bruto − Absence; this is the weekly budget for Epic allocation |
 | Management Capacity | `M × 1 PW` |
 | Management Absence | `M × 0.142 PW` |
 | Management Net Capacity | Management Capacity − Absence |
@@ -104,16 +104,16 @@ Labelled `Total / Weekly Allocation` — shows the sum of all Epic allocations f
 ### Allocation constraints
 
 - Per-Epic: sum of all week columns ≤ `Estimation`
-- Per-week: sum across all Epic rows ≤ `Engineering Net Capacity` for that week
+- Per-week: sum across all Epic rows ≤ `Engineer Net Capacity` for that week
 - Cell values are floats rounded to 0.1 increments
 
 ### Example output (truncated — `data/examples/output_example.xlsx`)
 
 | Budget Bucket | Epic / Capacity Metric | Priority | Estimation | Total Weeks | 1.05 | 1.12 | … | 12.28 |
 |---|---|---|---|---|---|---|---|---|
-| | Engineering Capacity (Bruto) | | | | 5.0 | 5.0 | … | 5.0 |
-| | Engineering Absence | | | | 0.7 | 0.7 | … | 0.7 |
-| | Engineering Net Capacity | | | | 4.3 | 4.3 | … | 4.3 |
+| | Engineer Capacity (Bruto) | | | | 5.0 | 5.0 | … | 5.0 |
+| | Engineer Absence | | | | 0.7 | 0.7 | … | 0.7 |
+| | Engineer Net Capacity | | | | 4.3 | 4.3 | … | 4.3 |
 | | Management Capacity | | | | 2.0 | 2.0 | … | 2.0 |
 | | Management Absence | | | | 0.3 | 0.3 | … | 0.3 |
 | | Management Net Capacity | | | | 1.7 | 1.7 | … | 1.7 |

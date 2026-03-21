@@ -1,9 +1,9 @@
 The resulting table must fulfill these requirements:
 
 One row per Epic. It's title will be the second column.
-One row for Engineering capacity (bruto).
-One row for Engineering absence.
-One row for Engineering Net Capacity.
+One row for Engineer capacity (bruto).
+One row for Engineer absence.
+One row for Engineer Net Capacity.
 One row for Management capacity.
 One row for Management absence.
 One row for Management Net Capacity.
@@ -14,7 +14,12 @@ In addition, a succession of columns, where each column corresponds to a week in
 The content of each such week-column shall be the capacity allocated in that week to a given Epic.
 Each cell in a column may have a float number allocated to it, in 0.1 increments.
 The total amount of capacity allocated over all weeks to a given Epic cannot exceed its Estimation.
-The total amount of capacity in a given Week (i.e. all capacities allocated in that Week-column over all Rows) cannot exceed the Engineering Net Capacity for that week.
+The total amount of capacity in a given Week (i.e. all capacities allocated in that Week-column over all Rows) cannot exceed the Engineer Net Capacity for that week.
+
+## Mandatory checks
+
+The total amount of capacity allocated over all weeks to a given Epic cannot exceed its Estimation.
+The total amount of capacity in a given Week (i.e. all capacities allocated in that Week-column over all Rows) cannot exceed the total Engineer Net Capacity for that week.
 
 ## Capacity calculation
 
@@ -24,27 +29,29 @@ Absence is derived from a combined total of **37 days per year** (30 vacation + 
 
 | Metric | Formula |
 |---|---|
-| Engineering Capacity (Bruto) | `E × 1 PW = E` |
-| Engineering Absence | `E × 0.142 PW` (= E × 0.71 days ÷ 5; 37 days/year ÷ 52 weeks) |
-| Engineering Net Capacity | `E − (E × 0.142)` |
+| Engineer Capacity (Bruto) | `E × 1 PW = E PW` |
+| Engineer Absence | `E × 0.142 PW` (= E × 0.71 days ÷ 5; 37 days/year ÷ 52 weeks) |
+| Engineer Net Capacity | `Engineer Capacity - Engineer Absence` |
 | Management Capacity | `M × 1 PW = M` |
 | Management Absence | `M × 0.142 PW` |
-| Management Net Capacity | `M − (M × 0.142)` |
+| Management Net Capacity | `Management Capacity - Management Absence` |
+
+## Expected output layout
 
 See a description of the expected output table below:
 
-| Budget Bucket   | Epic / Capacity Metric        | Priority   | Estimation   | Total Weeks   | 01.05   | 01.12   | 01.19   | 01.26   | 02.02   | ...   |
-| --------------- | ----------------------------- | ---------- | ------------ | ------------- | ------- | ------- | ------- | ------- | ------- | ----- |
-|                 | Engineering Capacity (Bruto)  |            |              |               | 5.0     | 5.0     | 5.0     | 5.0     | 5.0     | ...   |
-|                 | Engineering Absence           |            |              |               | 0.7     | 0.7     | 0.7     | 0.7     | 0.7     | ...   |
-|                 | Engineering Net Capacity      |            |              |               | 4.3     | 4.3     | 4.3     | 4.3     | 4.3     | ...   |
-|                 | Management Capacity           |            |              |               | 2.0     | 2.0     | 2.0     | 2.0     | 2.0     | ...   |
-|                 | Management Absence            |            |              |               | 0.3     | 0.3     | 0.3     | 0.3     | 0.3     | ...   |
-|                 | Management Net Capacity       |            |              |               | 1.7     | 1.7     | 1.7     | 1.7     | 1.7     | ...   |
-| --------------- | ----------------------------- | ---------- | ------------ | ------------- | ------- | ------- | ------- | ------- | ------- | ----- |
-| Platform        | Auth & Identity Management    | 0          | 80.0         | 78.0          | 1.5     | 1.5     | 1.5     | 1.5     | 1.5     | ...   |
-| Analytics       | Real-time Analytics           | 0          | 120.0        | 119.6         | 2.3     | 2.3     | 2.3     | 2.3     | 2.3     | ...   |
-| Product         | Mobile App Redesign           | 1          | 100.0        | 98.8          | 1.9     | 1.9     | 1.9     | 1.9     | 1.9     | ...   |
-| Platform        | API Gateway Optimization      | 1          | 60.0         | 59.8          | 1.1     | 1.1     | 1.1     | 1.1     | 1.1     | ...   |
-| Analytics       | Data Quality Framework        | 2          | 90.0         | 89.7          | 1.7     | 1.7     | 1.7     | 1.7     | 1.7     | ...   |
-| Total           | Weekly Allocation             |            |              |               | 8.5     | 8.5     | 8.5     | 8.5     | 8.5     | ...   |
+| Budget Bucket   | Epic / Capacity Metric        | Priority   | Estimation   | Total Weeks   | "01.05"   | "01.12"  | ...   |
+| --------------- | ----------------------------- | ---------- | ------------ | ------------- | ------- | ------- | -------  |
+|                 | Engineer Capacity (Bruto)  |            |              |               | 5.0     | 5.0     | ...   |
+|                 | Engineer Absence           |            |              |               | 0.7     | 0.7     | ...   |
+|                 | Engineer Net Capacity      |            |              |               | 4.3     | 4.3     | ...   |
+|                 | Management Capacity           |            |              |               | 2.0     | 2.0     | ...   |
+|                 | Management Absence            |            |              |               | 0.3     | 0.3     | ...   |
+|                 | Management Net Capacity       |            |              |               | 1.7     | 1.7     | ...   |
+| --------------- | ----------------------------- | ---------- | ------------ | ------------- | ------- | ------- | ------- | 
+| Platform        | Auth & Identity Management    | 0          | 80.0         | 78.0          | 1.5     | 1.5     | ...   |
+| Analytics       | Real-time Analytics           | 0          | 120.0        | 119.6         | 2.3     | 2.3     | ...   |
+| Product         | Mobile App Redesign           | 1          | 100.0        | 98.8          | 1.9     | 1.9     | ...   |
+| Platform        | API Gateway Optimization      | 1          | 60.0         | 59.8          | 1.1     | 1.1     | ...   |
+| Analytics       | Data Quality Framework        | 2          | 90.0         | 89.7          | 1.7     | 1.7     | ...   |
+| Total           | Weekly Allocation             |            |              |               | 8.5     | 8.5     | ...   |

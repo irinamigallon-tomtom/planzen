@@ -65,8 +65,8 @@ def test_week_columns_are_present() -> None:
 def test_epic_total_does_not_exceed_estimation() -> None:
     df = _build()
     header_labels = {
-        "Engineering Capacity (Bruto)", "Engineering Absence",
-        "Engineering Net Capacity", "Management Capacity",
+        "Engineer Capacity (Bruto)", "Engineer Absence",
+        "Engineer Net Capacity", "Management Capacity",
         "Management Absence", "Management Net Capacity", "Weekly Allocation",
     }
     epic_rows = df[~df[OUT_COL_EPIC].isin(header_labels)]

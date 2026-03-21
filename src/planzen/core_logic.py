@@ -167,7 +167,7 @@ def _allocate_epics(
     """
     Distribute each Epic's Estimation evenly across weeks, capped so that:
     - per-Epic sum ≤ Estimation
-    - per-week sum across all Epics ≤ Engineering Net Capacity
+    - per-week sum across all Epics ≤ Engineer Net Capacity
     """
     n_weeks = len(mondays)
     rows: list[dict] = []

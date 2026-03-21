@@ -17,9 +17,9 @@ OUT_COL_ESTIMATION = "Estimation"
 OUT_COL_TOTAL_WEEKS = "Total Weeks"
 
 # Capacity header row labels
-LABEL_ENG_BRUTO = "Engineering Capacity (Bruto)"
-LABEL_ENG_ABSENCE = "Engineering Absence"
-LABEL_ENG_NET = "Engineering Net Capacity"
+LABEL_ENG_BRUTO = "Engineer Capacity (Bruto)"
+LABEL_ENG_ABSENCE = "Engineer Absence"
+LABEL_ENG_NET = "Engineer Net Capacity"
 LABEL_MGMT_CAPACITY = "Management Capacity"
 LABEL_MGMT_ABSENCE = "Management Absence"
 LABEL_MGMT_NET = "Management Net Capacity"
