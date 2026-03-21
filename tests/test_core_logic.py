@@ -267,9 +267,23 @@ def test_gap_admissible_when_capacity_exhausted() -> None:
 # validate_allocation tests
 # ---------------------------------------------------------------------------
 
+def _week_mondays(df: pd.DataFrame) -> list:
+    """Return a list of N sequential Mondays matching the week columns count.
+
+    The exact dates don't matter for tests using constant-capacity CapacityConfig
+    (no per-week dicts), but validate_allocation requires the same length as
+    the week columns.
+    """
+    from datetime import date, timedelta
+    non_week = {"Budget Bucket", "Epic Description", "Priority", "Estimation", "Total Weeks", "Off Estimate"}
+    n = sum(1 for c in df.columns if c not in non_week)
+    base = date(2026, 3, 30)
+    return [base + timedelta(weeks=i) for i in range(n)]
+
+
 def test_validate_allocation_passes_for_valid_output() -> None:
     df = _build()
-    violations = validate_allocation(df, CAPACITY)
+    violations = validate_allocation(df, CAPACITY, _week_mondays(df))
     assert violations == [], f"Unexpected violations: {violations}"
 
 
@@ -280,7 +294,7 @@ def test_validate_allocation_detects_epic_overallocation() -> None:
     epic_mask = df[OUT_COL_EPIC] == "Auth & Identity Management"
     df.loc[epic_mask, week_cols[0]] = 9999.0
     df.loc[epic_mask, OUT_COL_TOTAL_WEEKS] = 9999.0
-    violations = validate_allocation(df, CAPACITY)
+    violations = validate_allocation(df, CAPACITY, _week_mondays(df))
     assert any("Auth & Identity Management" in v for v in violations)
 
 
@@ -294,7 +308,7 @@ def test_validate_allocation_detects_weekly_overallocation() -> None:
         "Weekly Allocation", "Off Capacity",
     })
     df.loc[epic_mask, week_cols[0]] = 9999.0
-    violations = validate_allocation(df, CAPACITY)
+    violations = validate_allocation(df, CAPACITY, _week_mondays(df))
     assert any(week_cols[0] in v for v in violations)
 
 
@@ -306,7 +320,7 @@ def test_overflow_scenario_is_valid() -> None:
     }])
     capacity = CapacityConfig(num_engineers=1, num_managers=0)
     df = build_output_table(overflow_epics, capacity, START, END)
-    violations = validate_allocation(df, capacity)
+    violations = validate_allocation(df, capacity, _week_mondays(df))
     assert violations == [], f"Unexpected violations: {violations}"
 
     week_cols = [c for c in df.columns if c not in
@@ -543,7 +557,7 @@ def test_overflow_respects_capacity_constraint() -> None:
     """Even with overflow, no week may exceed Engineer Net Capacity."""
     q1_start, q1_end = FISCAL_QUARTERS[1]
     df = build_output_table(EPICS_DF, CAPACITY, q1_start, q1_end)
-    violations = validate_allocation(df, CAPACITY)
+    violations = validate_allocation(df, CAPACITY, _week_mondays(df))
     assert violations == [], f"Violations with overflow: {violations}"
 
 

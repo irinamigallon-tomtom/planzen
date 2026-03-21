@@ -8,7 +8,7 @@ sheet shape.
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import date, timedelta
 from pathlib import Path
 
 import openpyxl
@@ -160,7 +160,8 @@ def _write_input(path: Path, epics: list[dict], config: list[dict] | None = None
 def test_read_input_returns_engineers_and_managers(tmp_path: Path) -> None:
     p = tmp_path / "input.xlsx"
     _write_input(p, [_base_row()])
-    _, eng, mgr, _, _ = read_input(p)
+    _, cap = read_input(p, 2)
+    eng, mgr = cap.num_engineers, cap.num_managers
     assert eng == 5.0
     assert mgr == 2.0
 
@@ -168,7 +169,8 @@ def test_read_input_returns_engineers_and_managers(tmp_path: Path) -> None:
 def test_read_input_returns_none_when_absence_omitted(tmp_path: Path) -> None:
     p = tmp_path / "input.xlsx"
     _write_input(p, [_base_row()])
-    _, _, _, eng_abs, mgmt_abs = read_input(p)
+    _, cap = read_input(p, 2)
+    eng_abs, mgmt_abs = cap.eng_absence_per_week, cap.mgmt_absence_per_week
     assert eng_abs is None
     assert mgmt_abs is None
 
@@ -180,22 +182,23 @@ def test_read_input_parses_optional_absence_days(tmp_path: Path) -> None:
         {"Budget Bucket": "Management Absence", "Estimation": 4.0},
     ]
     _write_input(p, [_base_row()], config=config)
-    _, _, _, eng_abs, mgmt_abs = read_input(p)
-    assert eng_abs == 10.0
-    assert mgmt_abs == 4.0
+    _, cap = read_input(p, 2)
+    # 10 days / 5 days-per-week / 13 Q2-weeks
+    assert cap.eng_absence_per_week == pytest.approx(10.0 / 5 / 13)
+    assert cap.mgmt_absence_per_week == pytest.approx(4.0 / 5 / 13)
 
 
 def test_read_input_epic_rows_exclude_config_rows(tmp_path: Path) -> None:
     p = tmp_path / "input.xlsx"
     _write_input(p, [_base_row()])
-    epics, _, _, _, _ = read_input(p)
+    epics, _ = read_input(p, 2)
     assert len(epics) == 1
 
 
 def test_read_input_accepts_extra_columns(tmp_path: Path) -> None:
     p = tmp_path / "input.xlsx"
     _write_input(p, [_base_row(**{"Extra Col": "ignored"})])
-    epics, _, _, _, _ = read_input(p)
+    epics, _ = read_input(p, 2)
     assert "Extra Col" in epics.columns
 
 
@@ -204,8 +207,8 @@ def test_read_input_accepts_optional_milestone(tmp_path: Path) -> None:
     p_without = tmp_path / "without.xlsx"
     _write_input(p_with, [_base_row(Milestone="Q1")])
     _write_input(p_without, [_base_row()])
-    read_input(p_with)
-    read_input(p_without)
+    read_input(p_with, 2)
+    read_input(p_without, 2)
 
 
 def test_read_input_preserves_column_order(tmp_path: Path) -> None:
@@ -218,7 +221,7 @@ def test_read_input_preserves_column_order(tmp_path: Path) -> None:
         "Type": "Feature", "Budget Bucket": "B",
     }]
     pd.DataFrame(rows).to_excel(p, index=False)
-    epics, _, _, _, _ = read_input(p)
+    epics, _ = read_input(p, 2)
     # Column order must match the file: Budget Bucket and Estimation come first
     # (from config rows), then the remaining epic columns.
     assert epics.columns[0] == "Budget Bucket"
@@ -233,7 +236,7 @@ def test_read_input_raises_for_missing_engineers_row(tmp_path: Path) -> None:
     config = [{"Budget Bucket": "Management Capacity (Bruto)", "Estimation": 2.0}]
     _write_input(p, [_base_row()], config=config)
     with pytest.raises(ValueError, match="Engineer Capacity"):
-        read_input(p)
+        read_input(p, 2)
 
 
 def test_read_input_raises_for_missing_required_epic_columns(tmp_path: Path) -> None:
@@ -242,7 +245,7 @@ def test_read_input_raises_for_missing_required_epic_columns(tmp_path: Path) -> 
     rows = _config_rows() + [{"Epic Description": "E", "Estimation": 1.0}]
     pd.DataFrame(rows).to_excel(p, index=False)
     with pytest.raises(ValueError, match="missing required columns"):
-        read_input(p)
+        read_input(p, 2)
 
 
 # ---------------------------------------------------------------------------
@@ -263,7 +266,8 @@ def test_read_input_accepts_engineer_label_variants(tmp_path: Path, eng_label: s
         {"Budget Bucket": "Management Capacity (Bruto)", "Estimation": 2.0},
     ]
     _write_input(p, [_base_row()], config=config)
-    _, eng, _, _, _ = read_input(p)
+    _, cap = read_input(p, 2)
+    eng = cap.num_engineers
     assert eng == 4.0
 
 
@@ -279,7 +283,8 @@ def test_read_input_accepts_manager_label_variants(tmp_path: Path, mgr_label: st
         {"Budget Bucket": mgr_label, "Estimation": 2.0},
     ]
     _write_input(p, [_base_row()], config=config)
-    _, _, mgr, _, _ = read_input(p)
+    _, cap = read_input(p, 2)
+    mgr = cap.num_managers
     assert mgr == 2.0
 
 
@@ -297,9 +302,9 @@ def test_read_input_accepts_absence_label_variants(
         {"Budget Bucket": mgr_abs_label, "Estimation": 4.0},
     ]
     _write_input(p, [_base_row()], config=config)
-    _, _, _, eng_abs, mgr_abs = read_input(p)
-    assert eng_abs == 10.0
-    assert mgr_abs == 4.0
+    _, cap = read_input(p, 2)
+    assert cap.eng_absence_per_week == pytest.approx(10.0 / 5 / 13)
+    assert cap.mgmt_absence_per_week == pytest.approx(4.0 / 5 / 13)
 
 
 
@@ -316,7 +321,7 @@ def test_read_input_discards_fully_empty_rows(tmp_path: Path) -> None:
          "Type": None, "Link": None, "Priority": None},
     ]
     pd.DataFrame(rows).to_excel(p, index=False)
-    epics, _, _, _, _ = read_input(p)
+    epics, _ = read_input(p, 2)
     assert len(epics) == 1
     assert epics.iloc[0]["Epic Description"] == "E"
 
@@ -330,7 +335,7 @@ def test_read_input_discards_rows_without_epic_description(tmp_path: Path) -> No
          "Type": "Feature", "Link": "http://x", "Priority": 2},
     ]
     pd.DataFrame(rows).to_excel(p, index=False)
-    epics, _, _, _, _ = read_input(p)
+    epics, _ = read_input(p, 2)
     assert len(epics) == 1
 
 
@@ -344,7 +349,7 @@ def test_read_input_logs_warning_for_unnamed_rows(tmp_path: Path, caplog) -> Non
     ]
     pd.DataFrame(rows).to_excel(p, index=False)
     with caplog.at_level(logging.WARNING, logger="planzen.excel_io"):
-        read_input(p)
+        read_input(p, 2)
     assert any("Discarding" in r.message for r in caplog.records)
 
 
@@ -358,7 +363,7 @@ def test_read_input_handles_mixed_empty_and_valid_rows(tmp_path: Path) -> None:
         {"Epic Description": None, "Estimation": None},  # empty
     ]
     pd.DataFrame(rows).to_excel(p, index=False)
-    epics, _, _, _, _ = read_input(p)
+    epics, _ = read_input(p, 2)
     assert list(epics["Epic Description"]) == ["A", "B"]
 
 
@@ -835,3 +840,86 @@ def test_formulas_file_off_capacity_has_abs_formula(formulas_file: Path) -> None
         assert isinstance(val, str) and "ABS" in val.upper(), (
             f"Off Capacity cell ({alert_row},{col_idx}) should be =ABS(...) formula, got {val!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Per-week capacity: read_input with D.M. week columns
+# ---------------------------------------------------------------------------
+
+_PER_WEEK_FIXTURE = Path(__file__).parent / "data" / "input_per_week_absence.xlsx"
+
+_Q2_MONDAYS = [
+    date(2026, 3, 30) + timedelta(weeks=i) for i in range(13)
+]
+
+
+def test_per_week_fixture_loads_bruto_by_week(tmp_path: Path) -> None:
+    """Per-week bruto is extracted from D.M. columns when all 13 Q2 weeks present."""
+    _, cap = read_input(_PER_WEEK_FIXTURE, 2)
+    assert cap.eng_bruto_by_week is not None
+    assert len(cap.eng_bruto_by_week) == 13
+    # first 6 weeks → 2.0, last 7 weeks → 3.0
+    for monday in _Q2_MONDAYS[:6]:
+        assert cap.eng_bruto_by_week[monday] == pytest.approx(2.0)
+    for monday in _Q2_MONDAYS[6:]:
+        assert cap.eng_bruto_by_week[monday] == pytest.approx(3.0)
+
+
+def test_per_week_fixture_loads_absence_by_week(tmp_path: Path) -> None:
+    """Per-week absence is extracted; NaN weeks default to 0."""
+    _, cap = read_input(_PER_WEEK_FIXTURE, 2)
+    assert cap.eng_absence_by_week is not None
+    assert len(cap.eng_absence_by_week) == 13
+    # NaN weeks (index 4, 9, 11) default to 0
+    nan_indices = [4, 9, 11]
+    for i in nan_indices:
+        assert cap.eng_absence_by_week[_Q2_MONDAYS[i]] == pytest.approx(0.0)
+
+
+def test_per_week_eng_net_for_varies_by_week(tmp_path: Path) -> None:
+    """eng_net_for returns different values for different weeks."""
+    _, cap = read_input(_PER_WEEK_FIXTURE, 2)
+    # week 0: bruto=2.0, absence=0.1 → net=1.9
+    assert cap.eng_net_for(_Q2_MONDAYS[0]) == pytest.approx(1.9)
+    # week 6: bruto=3.0, absence=0.0 → net=3.0
+    assert cap.eng_net_for(_Q2_MONDAYS[6]) == pytest.approx(3.0)
+
+
+def test_per_week_build_output_uses_variable_capacity(tmp_path: Path) -> None:
+    """build_output_table uses per-week capacity rows in its output."""
+    from planzen.core_logic import build_output_table
+    from planzen.config import LABEL_ENG_BRUTO, FISCAL_QUARTERS
+    epics_df, cap = read_input(_PER_WEEK_FIXTURE, 2)
+    start, end = FISCAL_QUARTERS[2]
+    output = build_output_table(epics_df, cap, start, end)
+    bruto_row = output[output["Epic Description"] == LABEL_ENG_BRUTO].iloc[0]
+    week_cols = [c for c in output.columns if c not in
+                 {"Budget Bucket", "Epic Description", "Priority", "Estimation", "Total Weeks", "Off Estimate"}]
+    # first 6 weeks should be 2.0, last 7 should be 3.0
+    for i, w in enumerate(week_cols[:6]):
+        assert bruto_row[w] == pytest.approx(2.0), f"Week {w} bruto should be 2.0"
+    for i, w in enumerate(week_cols[6:]):
+        assert bruto_row[w] == pytest.approx(3.0), f"Week {w} bruto should be 3.0"
+
+
+def test_partial_per_week_bruto_raises_error(tmp_path: Path) -> None:
+    """If only some Q2 weeks have bruto values, a ValueError is raised."""
+    from datetime import date, timedelta
+    q2_mondays = [date(2026, 3, 30) + timedelta(weeks=i) for i in range(13)]
+    week_cols = [f"{m.day}.{m.month}." for m in q2_mondays]
+    rows = [
+        {"Budget Bucket": "Num Engineers", "Estimation": 3.0,
+         "Epic Description": "", "Priority": "", "Link": "", "Type": ""},
+    ]
+    # Engineer Capacity (Bruto) with only 5 of 13 Q2 weeks
+    bruto_row = {"Budget Bucket": "Engineer Capacity (Bruto)", "Estimation": "",
+                 "Epic Description": "", "Priority": "", "Link": "", "Type": ""}
+    for w in week_cols[:5]:
+        bruto_row[w] = 3.0
+    rows.append(bruto_row)
+    rows.append({"Budget Bucket": "Platform", "Epic Description": "X", "Estimation": 2.0,
+                 "Priority": 1, "Link": "http://x", "Type": "Feature"})
+    p = tmp_path / "partial.xlsx"
+    pd.DataFrame(rows).to_excel(p, index=False)
+    with pytest.raises(ValueError, match="partially populated"):
+        read_input(p, 2)

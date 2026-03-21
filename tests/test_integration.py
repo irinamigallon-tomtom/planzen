@@ -133,11 +133,11 @@ def test_cli_rejects_invalid_quarter(tmp_path: Path) -> None:
 def test_empty_and_unnamed_rows_are_discarded(tmp_path: Path) -> None:
     """Fixture has 1 valid epic + 1 fully-empty row + 1 row without Epic Description."""
     from planzen.excel_io import read_input
-    epics, eng, mgr, _, _ = read_input(DATA / "empty_and_unnamed_rows.xlsx")
+    epics, cap = read_input(DATA / "empty_and_unnamed_rows.xlsx", 2)
     assert len(epics) == 1
     assert epics.iloc[0]["Epic Description"] == "Alpha"
-    assert eng == 5.0
-    assert mgr == 2.0
+    assert cap.num_engineers == 5.0
+    assert cap.num_managers == 2.0
 
 
 def test_cli_succeeds_despite_empty_rows(tmp_path: Path) -> None:

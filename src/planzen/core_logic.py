@@ -52,21 +52,46 @@ _NON_EPIC_LABELS = frozenset({
 @dataclass
 class CapacityConfig:
     """
-    Weekly capacity derived from head counts, in Person-Weeks (PW).
+    Weekly capacity configuration in Person-Weeks (PW).
 
-    Each person contributes 1 PW of bruto capacity per week.
+    Supports two modes:
 
-    Absence can be supplied as a pre-computed per-week value
-    (``eng_absence_per_week`` / ``mgmt_absence_per_week``).  When omitted the
-    tool falls back to the default formula:
-    37 absence days/year ÷ 52 weeks ÷ 5 days/week ≈ 0.142 PW/person/week.
-    Net capacity = bruto − absence.
+    * **Constant** — provide scalar ``num_engineers`` / ``num_managers`` and
+      optional scalar absence values.  Every week gets the same capacity.
+    * **Per-week** — provide ``eng_bruto_by_week`` / ``eng_absence_by_week``
+      dicts keyed by Monday ``date``.  When a week is absent from the dict the
+      scalar fallback is used (bruto) or 0 is assumed (absence).
+
+    Net capacity for a given week: ``eng_bruto_for(w) − eng_absence_for(w)``.
     """
 
     num_engineers: float
     num_managers: float
     eng_absence_per_week: float | None = None
     mgmt_absence_per_week: float | None = None
+
+    # Optional per-week overrides (keyed by Monday date)
+    eng_bruto_by_week: dict[date, float] | None = None
+    eng_absence_by_week: dict[date, float] | None = None
+
+    # --- per-week accessor methods (used throughout allocation logic) ---
+
+    def eng_bruto_for(self, week: date) -> float:
+        if self.eng_bruto_by_week:
+            return self.eng_bruto_by_week.get(week, self.num_engineers)
+        return self.num_engineers
+
+    def eng_absence_for(self, week: date) -> float:
+        if self.eng_absence_by_week is not None:
+            return self.eng_absence_by_week.get(week, 0.0)
+        if self.eng_absence_per_week is not None:
+            return round(self.eng_absence_per_week, 1)
+        return round(self.eng_bruto_for(week) * ABSENCE_PW_PER_PERSON, 1)
+
+    def eng_net_for(self, week: date) -> float:
+        return round(self.eng_bruto_for(week) - self.eng_absence_for(week), 1)
+
+    # --- scalar properties (constant-mode fallbacks, used for display) ---
 
     @property
     def eng_bruto(self) -> float:
@@ -126,6 +151,7 @@ def _mondays_in_range(start: date, end: date) -> list[date]:
 def validate_allocation(
     output_df: pd.DataFrame,
     capacity: CapacityConfig,
+    mondays: list[date],
 ) -> list[str]:
     """
     Check mandatory constraints on the output allocation table.
@@ -134,7 +160,7 @@ def validate_allocation(
 
     Checks:
     1. Per-epic total allocated PW ≤ Estimation.
-    2. Per-week sum across all epics ≤ Engineer Net Capacity.
+    2. Per-week sum across all epics ≤ Engineer Net Capacity for that week.
     """
     non_week = {
         OUT_COL_BUDGET_BUCKET, OUT_COL_EPIC, OUT_COL_PRIORITY,
@@ -154,12 +180,13 @@ def validate_allocation(
                 f"exceeds estimation {estimation:.1f} PW"
             )
 
-    for w in week_cols:
+    for w, monday in zip(week_cols, mondays):
         week_sum = round(sum(float(v) for v in epic_rows[w]), 10)
-        if week_sum > capacity.eng_net + 1e-9:
+        eng_net = capacity.eng_net_for(monday)
+        if week_sum > eng_net + 1e-9:
             violations.append(
                 f"Week '{w}': total {week_sum:.1f} PW exceeds "
-                f"Engineer Net Capacity {capacity.eng_net:.1f} PW"
+                f"Engineer Net Capacity {eng_net:.1f} PW"
             )
 
     return violations
@@ -195,7 +222,7 @@ def build_output_table(
     n_base_weeks = len(primary_mondays)
 
     total_estimation = float(epics_df[COL_ESTIMATION].sum())
-    quarter_capacity = capacity.eng_net * n_base_weeks
+    quarter_capacity = sum(capacity.eng_net_for(m) for m in primary_mondays)
 
     if total_estimation > quarter_capacity + 1e-9:
         overflow_start = end + timedelta(weeks=1)
@@ -207,14 +234,14 @@ def build_output_table(
     week_labels = [d.strftime("%b.%d") for d in mondays]
 
     # --- capacity header rows ---
-    capacity_rows = _build_capacity_rows(capacity, week_labels)
+    capacity_rows = _build_capacity_rows(capacity, mondays, week_labels)
 
     # --- epic rows with allocation per mode ---
     epic_rows = _allocate_epics(epics_df, capacity, mondays, week_labels, n_base_weeks)
 
     # --- sanity-check the allocator output (violations indicate a logic bug) ---
     total_row = _build_total_row(epic_rows, week_labels)
-    capacity_alert_row = _build_capacity_alert_row(total_row, capacity.eng_net, week_labels)
+    capacity_alert_row = _build_capacity_alert_row(total_row, capacity, mondays, week_labels)
 
     rows = capacity_rows + epic_rows + [total_row, capacity_alert_row]
     columns = [
@@ -228,7 +255,7 @@ def build_output_table(
     ]
     result = pd.DataFrame(rows, columns=columns)
 
-    violations = validate_allocation(result, capacity)
+    violations = validate_allocation(result, capacity, mondays)
     if violations:
         details = "\n  ".join(violations)
         raise RuntimeError(
@@ -244,9 +271,9 @@ def build_output_table(
 
 
 def _build_capacity_rows(
-    capacity: CapacityConfig, week_labels: list[str]
+    capacity: CapacityConfig, mondays: list[date], week_labels: list[str]
 ) -> list[dict]:
-    def _row(label: str, value: float) -> dict:
+    def _row(label: str, value_fn) -> dict:
         base: dict = {
             OUT_COL_BUDGET_BUCKET: "",
             OUT_COL_EPIC: label,
@@ -255,16 +282,16 @@ def _build_capacity_rows(
             OUT_COL_TOTAL_WEEKS: "",
             OUT_COL_OFF_ESTIMATE: "",
         }
-        base.update({w: value for w in week_labels})
+        base.update({w: value_fn(m) for w, m in zip(week_labels, mondays)})
         return base
 
     return [
-        _row(LABEL_ENG_BRUTO, capacity.eng_bruto),
-        _row(LABEL_ENG_ABSENCE, capacity.eng_absence),
-        _row(LABEL_ENG_NET, capacity.eng_net),
-        _row(LABEL_MGMT_CAPACITY, capacity.mgmt_capacity),
-        _row(LABEL_MGMT_ABSENCE, capacity.mgmt_absence),
-        _row(LABEL_MGMT_NET, capacity.mgmt_net),
+        _row(LABEL_ENG_BRUTO,     capacity.eng_bruto_for),
+        _row(LABEL_ENG_ABSENCE,   capacity.eng_absence_for),
+        _row(LABEL_ENG_NET,       capacity.eng_net_for),
+        _row(LABEL_MGMT_CAPACITY, lambda _: capacity.mgmt_capacity),
+        _row(LABEL_MGMT_ABSENCE,  lambda _: capacity.mgmt_absence),
+        _row(LABEL_MGMT_NET,      lambda _: capacity.mgmt_net),
     ]
 
 
@@ -292,7 +319,7 @@ def _allocate_epics(
     rows: list[dict] = []
 
     sorted_epics = epics_df.sort_values(COL_PRIORITY, kind="stable")
-    remaining: list[float] = [capacity.eng_net] * n_weeks
+    remaining: list[float] = [capacity.eng_net_for(m) for m in mondays]
     has_mode_col = COL_ALLOC_MODE in epics_df.columns
 
     for _, epic in sorted_epics.iterrows():
@@ -364,7 +391,9 @@ def _build_total_row(epic_rows: list[dict], week_labels: list[str]) -> dict:
     return row
 
 
-def _build_capacity_alert_row(total_row: dict, eng_net: float, week_labels: list[str]) -> dict:
+def _build_capacity_alert_row(
+    total_row: dict, capacity: CapacityConfig, mondays: list[date], week_labels: list[str]
+) -> dict:
     row: dict = {
         OUT_COL_BUDGET_BUCKET: "",
         OUT_COL_EPIC: LABEL_CAPACITY_ALERT_ROW,
@@ -373,7 +402,7 @@ def _build_capacity_alert_row(total_row: dict, eng_net: float, week_labels: list
         OUT_COL_TOTAL_WEEKS: "",
         OUT_COL_OFF_ESTIMATE: "",
     }
-    for w in week_labels:
+    for w, monday in zip(week_labels, mondays):
         weekly_total = float(total_row[w])
-        row[w] = abs(round(weekly_total - eng_net, 10)) > 0.1
+        row[w] = abs(round(weekly_total - capacity.eng_net_for(monday), 10)) > 0.1
     return row

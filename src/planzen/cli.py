@@ -17,8 +17,8 @@ from pathlib import Path
 
 import typer
 
-from planzen.config import COL_ESTIMATION, WORKING_DAYS_PER_WEEK
-from planzen.core_logic import CapacityConfig, build_output_table, get_quarter_dates, _mondays_in_range
+from planzen.config import COL_ESTIMATION
+from planzen.core_logic import build_output_table, get_quarter_dates, _mondays_in_range
 from planzen.excel_io import read_input, validate_input_file, write_output, write_output_with_formulas
 
 app = typer.Typer(help="planzen — weekly capacity allocation tool.")
@@ -41,7 +41,7 @@ def run(
     except ValueError as exc:
         raise typer.BadParameter(str(exc), param_hint="'-q'") from exc
 
-    errors = validate_input_file(input_file)
+    errors = validate_input_file(input_file, quarter)
     if errors:
         typer.echo(
             typer.style(f"\n✗  '{input_file}' has {len(errors)} problem(s):\n", fg=typer.colors.RED, bold=True)
@@ -51,27 +51,13 @@ def run(
         typer.echo()
         raise typer.Exit(code=1)
 
-    epics_df, num_engineers, num_managers, eng_absence_days, mgmt_absence_days = (
-        read_input(input_file)
-    )
+    epics_df, capacity = read_input(input_file, quarter)
 
     primary_mondays = _mondays_in_range(start_date, end_date)
     n_primary_weeks = len(primary_mondays)
 
-    def _days_to_pw_per_week(days: float | None) -> float | None:
-        if days is None:
-            return None
-        return days / WORKING_DAYS_PER_WEEK / n_primary_weeks
-
-    capacity = CapacityConfig(
-        num_engineers=num_engineers,
-        num_managers=num_managers,
-        eng_absence_per_week=_days_to_pw_per_week(eng_absence_days),
-        mgmt_absence_per_week=_days_to_pw_per_week(mgmt_absence_days),
-    )
-
     total_estimation = round(float(epics_df[COL_ESTIMATION].sum()), 1)
-    quarter_net_capacity = round(capacity.eng_net * n_primary_weeks, 1)
+    quarter_net_capacity = round(sum(capacity.eng_net_for(m) for m in primary_mondays), 1)
 
     if total_estimation > quarter_net_capacity + 1e-9:
         overflow_q = (quarter % 4) + 1

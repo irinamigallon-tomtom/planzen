@@ -8,6 +8,7 @@ All file operations are isolated here; core_logic stays pure.
 from __future__ import annotations
 
 import logging
+from datetime import date, timedelta
 from pathlib import Path
 
 import openpyxl
@@ -23,6 +24,7 @@ from planzen.config import (
     COL_LINK,
     COL_PRIORITY,
     DEFAULT_MGMT_CAPACITY_PW,
+    FISCAL_QUARTERS,
     TEAM_CONFIG_LABELS,
     TEAM_LABEL_ENG_ABSENCE,
     TEAM_LABEL_ENGINEERS,
@@ -45,6 +47,7 @@ from planzen.config import (
     OUT_COL_TOTAL_WEEKS,
     VALID_ALLOC_MODES,
 )
+from planzen.core_logic import CapacityConfig
 
 REQUIRED_INPUT_COLUMNS = {
     COL_EPIC,
@@ -140,7 +143,33 @@ def _config_label_series(df: pd.DataFrame) -> pd.Series:
     return bucket_norm
 
 
-def validate_input_file(path: Path) -> list[str]:
+def _quarter_mondays(quarter: int) -> list[date]:
+    """Return all 13 Mondays in the given fiscal quarter."""
+    start, end = FISCAL_QUARTERS[quarter]
+    day, mondays = start, []
+    while day <= end:
+        mondays.append(day)
+        day += timedelta(weeks=1)
+    return mondays
+
+
+def _parse_dm_week_columns(
+    df_columns: pd.Index,
+    quarter_mondays: list[date],
+) -> dict[date, str]:
+    """Map each quarter Monday to its ``D.M.`` column name (e.g. ``"30.3."``).
+
+    Only returns entries where the column actually exists in *df_columns*.
+    """
+    col_set = {str(c) for c in df_columns}
+    return {
+        monday: f"{monday.day}.{monday.month}."
+        for monday in quarter_mondays
+        if f"{monday.day}.{monday.month}." in col_set
+    }
+
+
+def validate_input_file(path: Path, quarter: int | None = None) -> list[str]:
     """
     Validate the input Excel file and return a list of human-readable error
     messages.  An empty list means the file is valid.
@@ -301,35 +330,55 @@ def validate_input_file(path: Path) -> list[str]:
                     f" (or leave blank to use the default: {ALLOC_MODE_DEFAULT})."
                 )
 
+    # --- per-week bruto validation (quarter required to check) ---
+    if quarter is not None and not errors:
+        q_mondays = _quarter_mondays(quarter)
+        week_col_map = _parse_dm_week_columns(df.columns, q_mondays)
+        if week_col_map:
+            eng_config_rows = config_rows[config_rows[COL_EPIC] == TEAM_LABEL_ENGINEERS]
+            if not eng_config_rows.empty:
+                eng_row = eng_config_rows.iloc[0]
+                n_with_value = sum(
+                    1 for col in week_col_map.values()
+                    if col in eng_row.index and pd.notna(eng_row[col])
+                )
+                if 0 < n_with_value < len(q_mondays):
+                    missing = [
+                        f"{m.day}.{m.month}."
+                        for m in q_mondays
+                        if m not in week_col_map
+                        or not pd.notna(eng_row.get(week_col_map[m]))
+                    ]
+                    errors.append(
+                        f'"{TEAM_LABEL_ENGINEERS}" has per-week values for only '
+                        f"{n_with_value}/{len(q_mondays)} Q{quarter} weeks. "
+                        f"Populate all weeks or none.\n"
+                        f"  → Missing weeks: {', '.join(missing)}"
+                    )
+
     return errors
 
 
-def read_input(path: Path) -> tuple[
-    pd.DataFrame,   # epics
-    float,          # num_engineers
-    float,          # num_managers
-    float | None,   # eng_absence_days (total for quarter, or None → use default)
-    float | None,   # mgmt_absence_days (total for quarter, or None → use default)
-]:
+def read_input(path: Path, quarter: int) -> tuple[pd.DataFrame, CapacityConfig]:
     """
-    Read the input Excel file and return epics plus team capacity config.
+    Read the input Excel file and return epics plus a fully-constructed
+    ``CapacityConfig`` for the requested quarter.
 
-    The sheet must begin with team config rows in columns A/B before the epic
-    data.  Recognised config labels (in the ``Epic Description`` column):
+    Two capacity modes are supported:
 
-    - ``Engineer Bruto Capacity``  *(required)*
-    - ``Manager Bruto Capacity`` *(required)*
-    - ``Engineer Absence (days)``  *(optional — total days for the quarter)*
-    - ``Manager Absence (days)``   *(optional — total days for the quarter)*
-
-    Config rows are stripped before the epic DataFrame is returned.  The epic
-    rows must contain all required columns; column order and extra columns are
-    preserved.
+    * **Constant** — config rows carry a scalar ``Estimation`` value.
+      Either ``Engineer Capacity (Bruto)`` (PW/week) or ``Num Engineers``
+      (head-count, derives PW at 1 PW/FTE) is required.
+    * **Per-week** — ``Engineer Capacity (Bruto)`` and/or ``Engineer Absence``
+      rows have values in week columns formatted as ``D.M.`` (e.g. ``30.3.``).
+      Bruto is all-or-nothing (all Q-weeks must be populated or none).
+      Absence is lenient (missing/NaN weeks default to 0).
 
     Raises
     ------
     ValueError
-        If required config rows or epic columns are missing.
+        If required config rows or epic columns are missing, or if
+        per-week bruto is only partially populated for the quarter.
     """
     df = pd.read_excel(path)
     df = _normalize_columns(df)
@@ -346,7 +395,7 @@ def read_input(path: Path) -> tuple[
     config_rows[COL_EPIC] = epic_norm[config_mask].map(_TEAM_CONFIG_LABELS_NORM)
     config_df = config_rows.set_index(COL_EPIC)[COL_ESTIMATION]
 
-    # --- engineer capacity: prefer "Engineer Capacity (Bruto)", fall back to "Num Engineers" × 1.0 ---
+    # --- scalar engineer capacity (fallback / constant mode) ---
     has_eng_bruto = TEAM_LABEL_ENGINEERS in config_df.index and pd.notna(config_df[TEAM_LABEL_ENGINEERS])
     has_num_eng   = TEAM_LABEL_NUM_ENGINEERS in config_df.index and pd.notna(config_df[TEAM_LABEL_NUM_ENGINEERS])
     if has_eng_bruto:
@@ -360,7 +409,7 @@ def read_input(path: Path) -> tuple[
             f"'{TEAM_LABEL_NUM_ENGINEERS}' row with a numeric Estimation."
         )
 
-    # --- management capacity: optional, default DEFAULT_MGMT_CAPACITY_PW ---
+    # --- scalar management capacity (optional) ---
     if TEAM_LABEL_MANAGERS in config_df.index and pd.notna(config_df[TEAM_LABEL_MANAGERS]):
         num_managers: float = float(config_df[TEAM_LABEL_MANAGERS])
     else:
@@ -368,32 +417,84 @@ def read_input(path: Path) -> tuple[
         _log.info("No '%s' row found — defaulting management capacity to %s PW/week.",
                   TEAM_LABEL_MANAGERS, DEFAULT_MGMT_CAPACITY_PW)
 
-    eng_absence_days: float | None = (
-        float(config_df[TEAM_LABEL_ENG_ABSENCE])
-        if TEAM_LABEL_ENG_ABSENCE in config_df.index
-        and pd.notna(config_df[TEAM_LABEL_ENG_ABSENCE])
-        else None
-    )
-    mgmt_absence_days: float | None = (
-        float(config_df[TEAM_LABEL_MGMT_ABSENCE])
-        if TEAM_LABEL_MGMT_ABSENCE in config_df.index
-        and pd.notna(config_df[TEAM_LABEL_MGMT_ABSENCE])
-        else None
+    # --- scalar absence (days → PW/week conversion done in CapacityConfig) ---
+    q_mondays = _quarter_mondays(quarter)
+    n_weeks = len(q_mondays)
+
+    eng_absence_per_week: float | None = None
+    if TEAM_LABEL_ENG_ABSENCE in config_df.index and pd.notna(config_df[TEAM_LABEL_ENG_ABSENCE]):
+        eng_absence_per_week = float(config_df[TEAM_LABEL_ENG_ABSENCE]) / 5.0 / n_weeks
+
+    mgmt_absence_per_week: float | None = None
+    if TEAM_LABEL_MGMT_ABSENCE in config_df.index and pd.notna(config_df[TEAM_LABEL_MGMT_ABSENCE]):
+        mgmt_absence_per_week = float(config_df[TEAM_LABEL_MGMT_ABSENCE]) / 5.0 / n_weeks
+
+    # --- per-week capacity extraction ---
+    week_col_map = _parse_dm_week_columns(df.columns, q_mondays)
+
+    eng_bruto_by_week: dict[date, float] | None = None
+    eng_absence_by_week: dict[date, float] | None = None
+
+    if week_col_map:
+        # Engineer Capacity (Bruto) — all-or-nothing per quarter
+        eng_bruto_rows = config_rows[config_rows[COL_EPIC] == TEAM_LABEL_ENGINEERS]
+        if not eng_bruto_rows.empty:
+            eng_row = eng_bruto_rows.iloc[0]
+            per_week = {
+                monday: float(eng_row[col])
+                for monday, col in week_col_map.items()
+                if col in eng_row.index and pd.notna(eng_row[col])
+            }
+            if len(per_week) == len(q_mondays):
+                eng_bruto_by_week = per_week
+            elif len(per_week) > 0:
+                missing = [
+                    f"{m.day}.{m.month}."
+                    for m in q_mondays
+                    if m not in per_week
+                ]
+                raise ValueError(
+                    f"'{TEAM_LABEL_ENGINEERS}' is partially populated for Q{quarter}: "
+                    f"{len(per_week)}/{len(q_mondays)} weeks have values. "
+                    f"Populate all weeks or none. Missing: {', '.join(missing)}"
+                )
+
+        # Engineer Absence — lenient: missing/NaN weeks default to 0
+        eng_absence_rows = config_rows[config_rows[COL_EPIC] == TEAM_LABEL_ENG_ABSENCE]
+        if not eng_absence_rows.empty:
+            abs_row = eng_absence_rows.iloc[0]
+            has_any = any(
+                col in abs_row.index and pd.notna(abs_row[col])
+                for col in week_col_map.values()
+            )
+            if has_any:
+                eng_absence_by_week = {
+                    monday: (
+                        float(abs_row[col])
+                        if col in abs_row.index and pd.notna(abs_row[col])
+                        else 0.0
+                    )
+                    for monday, col in week_col_map.items()
+                }
+
+    capacity = CapacityConfig(
+        num_engineers=num_engineers,
+        num_managers=num_managers,
+        eng_absence_per_week=eng_absence_per_week,
+        mgmt_absence_per_week=mgmt_absence_per_week,
+        eng_bruto_by_week=eng_bruto_by_week,
+        eng_absence_by_week=eng_absence_by_week,
     )
 
-    # --- epic rows (everything that isn't a config row) ---
+    # --- epic rows ---
     epics_df = df[~config_mask].reset_index(drop=True)
-
-    # Drop fully-empty rows silently.
     epics_df = epics_df.dropna(how="all").reset_index(drop=True)
 
-    # Rows with no Epic Description are unusable — log each one and discard.
     no_description = epics_df[COL_EPIC].isna()
     for idx in epics_df[no_description].index:
         _log.warning("Discarding row %d: no '%s' value.", idx + 1, COL_EPIC)
     epics_df = epics_df[~no_description].reset_index(drop=True)
 
-    # Rows with no Estimation default to 0 — log each one and continue.
     no_estimation = epics_df[COL_ESTIMATION].isna()
     for _, row in epics_df[no_estimation].iterrows():
         _log.warning(
@@ -407,7 +508,7 @@ def read_input(path: Path) -> tuple[
             f"Input file is missing required columns: {sorted(missing)}"
         )
 
-    return epics_df, num_engineers, num_managers, eng_absence_days, mgmt_absence_days
+    return epics_df, capacity
 
 
 def write_output(df: pd.DataFrame, path: Path) -> None:
