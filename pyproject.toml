@@ -1,0 +1,22 @@
+[project]
+name = "planzen"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Irina Vidal Migallon", email = "irina.migallon@tomtom.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "openpyxl>=3.1.5",
+    "pandas>=3.0.1",
+    "pytest>=9.0.2",
+    "typer>=0.24.1",
+]
+
+[project.scripts]
+planzen = "planzen.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.9.10,<0.10.0"]
+build-backend = "uv_build"

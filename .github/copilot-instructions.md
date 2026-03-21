@@ -1,0 +1,1 @@
+Use REPO_ROOT/AGENTS.md as a shared source of truth about how coding agents should behave in the project.
