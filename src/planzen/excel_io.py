@@ -22,11 +22,13 @@ from planzen.config import (
     COL_ESTIMATION,
     COL_LINK,
     COL_PRIORITY,
+    DEFAULT_MGMT_CAPACITY_PW,
     TEAM_CONFIG_LABELS,
     TEAM_LABEL_ENG_ABSENCE,
     TEAM_LABEL_ENGINEERS,
     TEAM_LABEL_MGMT_ABSENCE,
     TEAM_LABEL_MANAGERS,
+    TEAM_LABEL_NUM_ENGINEERS,
     LABEL_CAPACITY_ALERT_ROW,
     LABEL_ENG_ABSENCE,
     LABEL_ENG_BRUTO,
@@ -121,14 +123,21 @@ def formulas_path(path: Path) -> Path:
 def _config_label_series(df: pd.DataFrame) -> pd.Series:
     """Return a Series of normalised config labels for each row.
 
-    Config rows are identified exclusively by their ``Budget Bucket`` value.
-    ``Epic Description`` is not used for config row detection.
+    Checks ``Budget Bucket`` first; falls back to the ``Type`` column when
+    ``Budget Bucket`` carries no recognised config label for a row.
     """
+    COL_TYPE = "Type"
     if COL_BUDGET_BUCKET in df.columns:
-        label_vals = df[COL_BUDGET_BUCKET].fillna("").astype(str).str.strip()
+        bucket_norm = df[COL_BUDGET_BUCKET].fillna("").astype(str).str.strip().apply(_normalize_config_label)
     else:
-        label_vals = pd.Series("", index=df.index)
-    return label_vals.apply(_normalize_config_label)
+        bucket_norm = pd.Series("", index=df.index)
+
+    if COL_TYPE in df.columns:
+        type_norm = df[COL_TYPE].fillna("").astype(str).str.strip().apply(_normalize_config_label)
+        # Use Type as fallback only where Budget Bucket has no recognised label
+        return bucket_norm.where(bucket_norm.isin(_TEAM_CONFIG_LABELS_NORM), type_norm)
+
+    return bucket_norm
 
 
 def validate_input_file(path: Path) -> list[str]:
@@ -177,34 +186,32 @@ def validate_input_file(path: Path) -> list[str]:
     config_rows[COL_EPIC] = epic_norm[config_mask].map(_TEAM_CONFIG_LABELS_NORM)
     config_df = config_rows.set_index(COL_EPIC)[COL_ESTIMATION]
 
-    for label, hint in [
-        (
-            TEAM_LABEL_ENGINEERS,
-            f'Add a row where "{COL_BUDGET_BUCKET}" = "{TEAM_LABEL_ENGINEERS}" '
-            'and "Estimation" = the number of full-time engineers (e.g. 5).',
-        ),
-        (
-            TEAM_LABEL_MANAGERS,
-            f'Add a row where "{COL_BUDGET_BUCKET}" = "{TEAM_LABEL_MANAGERS}" '
-            'and "Estimation" = the number of line managers (e.g. 2).',
-        ),
-    ]:
-        if label not in config_df.index:
-            errors.append(f'Missing required config row: "{label}"\n  → {hint}')
-        else:
-            val = config_df[label]
-            try:
-                fval = float(val)
-                if fval <= 0:
-                    errors.append(
-                        f'"{label}" must be greater than 0 (got {val!r}).\n'
-                        "  → Enter the number of FTE team members, e.g. 5."
-                    )
-            except (TypeError, ValueError):
-                errors.append(
-                    f'"{label}" must be a number (got {val!r}).\n'
-                    "  → Enter the number of FTE team members, e.g. 5."
-                )
+    # Engineer capacity: accept either "Engineer Capacity (Bruto)" or "Num Engineers"
+    has_eng_bruto = TEAM_LABEL_ENGINEERS in config_df.index and pd.notna(config_df[TEAM_LABEL_ENGINEERS])
+    has_num_eng   = TEAM_LABEL_NUM_ENGINEERS in config_df.index and pd.notna(config_df[TEAM_LABEL_NUM_ENGINEERS])
+    if not has_eng_bruto and not has_num_eng:
+        errors.append(
+            f'Missing engineer capacity config.\n'
+            f'  → Add a row with "{COL_BUDGET_BUCKET}" = "{TEAM_LABEL_ENGINEERS}" and a numeric Estimation,\n'
+            f'    or a row with "{COL_BUDGET_BUCKET}" = "{TEAM_LABEL_NUM_ENGINEERS}" and the headcount in Estimation.'
+        )
+    else:
+        src_label = TEAM_LABEL_ENGINEERS if has_eng_bruto else TEAM_LABEL_NUM_ENGINEERS
+        val = config_df[src_label]
+        try:
+            if float(val) <= 0:
+                errors.append(f'"{src_label}" must be greater than 0 (got {val!r}).')
+        except (TypeError, ValueError):
+            errors.append(f'"{src_label}" must be a number (got {val!r}).')
+
+    # Management capacity: optional — defaults to DEFAULT_MGMT_CAPACITY_PW if absent
+    if TEAM_LABEL_MANAGERS in config_df.index and pd.notna(config_df[TEAM_LABEL_MANAGERS]):
+        val = config_df[TEAM_LABEL_MANAGERS]
+        try:
+            if float(val) <= 0:
+                errors.append(f'"{TEAM_LABEL_MANAGERS}" must be greater than 0 (got {val!r}).')
+        except (TypeError, ValueError):
+            errors.append(f'"{TEAM_LABEL_MANAGERS}" must be a number (got {val!r}).')
 
     for label in (TEAM_LABEL_ENG_ABSENCE, TEAM_LABEL_MGMT_ABSENCE):
         if label in config_df.index and pd.notna(config_df[label]):
@@ -339,17 +346,28 @@ def read_input(path: Path) -> tuple[
     config_rows[COL_EPIC] = epic_norm[config_mask].map(_TEAM_CONFIG_LABELS_NORM)
     config_df = config_rows.set_index(COL_EPIC)[COL_ESTIMATION]
 
-    if TEAM_LABEL_ENGINEERS not in config_df.index:
+    # --- engineer capacity: prefer "Engineer Capacity (Bruto)", fall back to "Num Engineers" × 1.0 ---
+    has_eng_bruto = TEAM_LABEL_ENGINEERS in config_df.index and pd.notna(config_df[TEAM_LABEL_ENGINEERS])
+    has_num_eng   = TEAM_LABEL_NUM_ENGINEERS in config_df.index and pd.notna(config_df[TEAM_LABEL_NUM_ENGINEERS])
+    if has_eng_bruto:
+        num_engineers: float = float(config_df[TEAM_LABEL_ENGINEERS])
+    elif has_num_eng:
+        num_engineers = float(config_df[TEAM_LABEL_NUM_ENGINEERS])
+        _log.info("Deriving engineer capacity from '%s' = %s FTE.", TEAM_LABEL_NUM_ENGINEERS, num_engineers)
+    else:
         raise ValueError(
-            f"Input file missing required config row: '{TEAM_LABEL_ENGINEERS}'"
-        )
-    if TEAM_LABEL_MANAGERS not in config_df.index:
-        raise ValueError(
-            f"Input file missing required config row: '{TEAM_LABEL_MANAGERS}'"
+            f"Input file missing engineer capacity: add a '{TEAM_LABEL_ENGINEERS}' or "
+            f"'{TEAM_LABEL_NUM_ENGINEERS}' row with a numeric Estimation."
         )
 
-    num_engineers: float = float(config_df[TEAM_LABEL_ENGINEERS])
-    num_managers: float  = float(config_df[TEAM_LABEL_MANAGERS])
+    # --- management capacity: optional, default DEFAULT_MGMT_CAPACITY_PW ---
+    if TEAM_LABEL_MANAGERS in config_df.index and pd.notna(config_df[TEAM_LABEL_MANAGERS]):
+        num_managers: float = float(config_df[TEAM_LABEL_MANAGERS])
+    else:
+        num_managers = DEFAULT_MGMT_CAPACITY_PW
+        _log.info("No '%s' row found — defaulting management capacity to %s PW/week.",
+                  TEAM_LABEL_MANAGERS, DEFAULT_MGMT_CAPACITY_PW)
+
     eng_absence_days: float | None = (
         float(config_df[TEAM_LABEL_ENG_ABSENCE])
         if TEAM_LABEL_ENG_ABSENCE in config_df.index

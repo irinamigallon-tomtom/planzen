@@ -31,15 +31,20 @@ VALID_ALLOC_MODES: frozenset[str] = frozenset({
 # Represents at most a tandem of 2 people working full-time.  Configurable here.
 MAX_WEEKLY_ALLOC_PW: float = 2.0
 
-# Team config rows — identified by their label in the Budget Bucket column.
-# The Estimation column holds the numeric value. Labels match the output row labels.
+# Team config rows — identified by their label in the Budget Bucket column (or
+# Type column as a fallback). The Estimation column holds the numeric value.
+# Labels match the output row labels where applicable.
 TEAM_LABEL_ENGINEERS      = "Engineer Capacity (Bruto)"    # = LABEL_ENG_BRUTO
-TEAM_LABEL_MANAGERS       = "Management Capacity (Bruto)"  # = LABEL_MGMT_CAPACITY
+TEAM_LABEL_NUM_ENGINEERS  = "Num Engineers"                # headcount; derives eng_bruto when Bruto row absent
+TEAM_LABEL_MANAGERS       = "Management Capacity (Bruto)"  # = LABEL_MGMT_CAPACITY; optional, default 1.0
 TEAM_LABEL_ENG_ABSENCE    = "Engineer Absence"             # = LABEL_ENG_ABSENCE; optional
 TEAM_LABEL_MGMT_ABSENCE   = "Management Absence"           # = LABEL_MGMT_ABSENCE; optional
 
+DEFAULT_MGMT_CAPACITY_PW: float = 1.0  # PW/week when no management config row is found
+
 TEAM_CONFIG_LABELS = {
     TEAM_LABEL_ENGINEERS,
+    TEAM_LABEL_NUM_ENGINEERS,
     TEAM_LABEL_MANAGERS,
     TEAM_LABEL_ENG_ABSENCE,
     TEAM_LABEL_MGMT_ABSENCE,

@@ -395,11 +395,12 @@ def test_validate_reports_missing_engineers_config_row(tmp_path: Path) -> None:
 
 
 def test_validate_reports_missing_managers_config_row(tmp_path: Path) -> None:
+    """Management capacity is optional — no error when absent; defaults to 1.0."""
     p = tmp_path / "input.xlsx"
     config = [{"Budget Bucket": "Engineer Capacity (Bruto)", "Estimation": 5.0}]
     _write_input(p, [_base_row()], config=config)
     errors = validate_input_file(p)
-    assert any("Management Capacity" in e for e in errors)
+    assert not any("Management Capacity" in e for e in errors)
 
 
 def test_validate_reports_non_positive_engineers(tmp_path: Path) -> None:

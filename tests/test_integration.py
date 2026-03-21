@@ -36,7 +36,7 @@ def test_missing_config_rows_reports_both_required_rows() -> None:
     errors = validate_input_file(DATA / "missing_config_rows.xlsx")
     labels = "\n".join(errors)
     assert "Engineer Capacity (Bruto)" in labels
-    assert "Management Capacity (Bruto)" in labels
+    # Management is now optional — should NOT appear as an error
 
 
 def test_invalid_estimations_reports_all_bad_rows() -> None:
@@ -105,7 +105,7 @@ def test_cli_prints_numbered_errors_for_invalid_input(tmp_path: Path) -> None:
     assert result.exit_code != 0
     assert "1." in result.output
     assert "Engineer Capacity (Bruto)" in result.output
-    assert "Management Capacity (Bruto)" in result.output
+    # Management is optional — no longer a hard error
 
 
 def test_cli_writes_no_output_on_invalid_input(tmp_path: Path) -> None:
