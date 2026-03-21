@@ -26,17 +26,19 @@ uv run planzen INPUT_FILE OUTPUT_FILE --start YYYY-MM-DD --end YYYY-MM-DD [OPTIO
 |---|---|---|
 | `--start` | *(required)* | First day of the planning period (any weekday; the tool finds the first Monday on or after this date) |
 | `--end` | *(required)* | Last day of the planning period (inclusive) |
-| `--eng-bruto` | `40.0` | Weekly engineering capacity in person-hours (bruto) |
-| `--eng-absence` | `4.0` | Weekly engineering absence in person-hours |
-| `--mgmt-capacity` | `10.0` | Weekly management capacity in person-hours |
-| `--mgmt-absence` | `1.0` | Weekly management absence in person-hours |
+| `--num-engineers` | *(required)* | Number of engineers (E); bruto = E PW/week, absence = E/12 PW/week |
+| `--num-managers` | *(required)* | Number of line managers (M); capacity = M PW/week, absence = M/12 PW/week |
+
+All capacity values are in **Person-Weeks (PW)**. Absence is automatically assumed to be **1/12 of bruto** for both groups. Net capacity = bruto − absence.
 
 ### Example
 
 ```bash
 uv run planzen data/examples/input_example.xlsx data/examples/output_example.xlsx \
   --start 2026-01-05 \
-  --end 2026-12-28
+  --end 2026-12-28 \
+  --num-engineers 5 \
+  --num-managers 2
 ```
 
 ---
@@ -77,11 +79,12 @@ The output is an Excel file (`.xlsx`) with a single sheet named **Allocation**.
 
 | Row label | Description |
 |---|---|
-| Engineering Capacity (Bruto) | Raw weekly engineering capacity |
-| Engineering Absence | Weekly absence to subtract |
+| `Engineering Capacity (Bruto)` | `E × 1 PW` |
+| `Engineering Absence` | `E ÷ 12` |
 | Engineering Net Capacity | Bruto − Absence; this is the weekly budget for Epic allocation |
-| Management Capacity | Raw weekly management capacity |
-| Management Absence | Weekly management absence |
+| Management Capacity | `M × 1 PW` |
+| Management Absence | `M ÷ 12` |
+| Management Net Capacity | Management Capacity − Absence |
 
 **Epic rows** (one per Epic from the input):
 
@@ -108,11 +111,12 @@ Labelled `Total / Weekly Allocation` — shows the sum of all Epic allocations f
 
 | Budget Bucket | Epic / Capacity Metric | Priority | Estimation | Total Weeks | 1.05 | 1.12 | … | 12.28 |
 |---|---|---|---|---|---|---|---|---|
-| | Engineering Capacity (Bruto) | | | | 40.0 | 40.0 | … | 40.0 |
-| | Engineering Absence | | | | 4.0 | 4.0 | … | 4.0 |
-| | Engineering Net Capacity | | | | 36.0 | 36.0 | … | 36.0 |
-| | Management Capacity | | | | 10.0 | 10.0 | … | 10.0 |
-| | Management Absence | | | | 1.0 | 1.0 | … | 1.0 |
+| | Engineering Capacity (Bruto) | | | | 5.0 | 5.0 | … | 5.0 |
+| | Engineering Absence | | | | 0.4 | 0.4 | … | 0.4 |
+| | Engineering Net Capacity | | | | 4.6 | 4.6 | … | 4.6 |
+| | Management Capacity | | | | 2.0 | 2.0 | … | 2.0 |
+| | Management Absence | | | | 0.2 | 0.2 | … | 0.2 |
+| | Management Net Capacity | | | | 1.8 | 1.8 | … | 1.8 |
 | Platform | Auth & Identity Management | 0 | 80.0 | 78.0 | 1.5 | 1.5 | … | 1.5 |
 | Analytics | Real-time Analytics | 0 | 120.0 | 119.6 | 2.3 | 2.3 | … | 2.3 |
 | Product | Mobile App Redesign | 1 | 100.0 | 98.8 | 1.9 | 1.9 | … | 1.9 |

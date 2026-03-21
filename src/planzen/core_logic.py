@@ -7,7 +7,7 @@ described in LOGIC.md.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date, timedelta
 
 import pandas as pd
@@ -22,6 +22,7 @@ from planzen.config import (
     LABEL_ENG_NET,
     LABEL_MGMT_ABSENCE,
     LABEL_MGMT_CAPACITY,
+    LABEL_MGMT_NET,
     LABEL_TOTAL_BUCKET,
     LABEL_TOTAL_ROW,
     OUT_COL_BUDGET_BUCKET,
@@ -34,16 +35,40 @@ from planzen.config import (
 
 @dataclass
 class CapacityConfig:
-    """Weekly capacity parameters supplied by the user."""
+    """
+    Weekly capacity derived from head counts, in Person-Weeks (PW).
 
-    eng_bruto: float
-    eng_absence: float
-    mgmt_capacity: float
-    mgmt_absence: float
+    Each person contributes 1 PW of bruto capacity per week.
+    Absence is assumed to be 1/12 of bruto for both engineers and managers.
+    Net capacity = bruto − absence.
+    """
+
+    num_engineers: int
+    num_managers: int
+
+    @property
+    def eng_bruto(self) -> float:
+        return float(self.num_engineers)
+
+    @property
+    def eng_absence(self) -> float:
+        return round(self.num_engineers / 12, 1)
 
     @property
     def eng_net(self) -> float:
         return round(self.eng_bruto - self.eng_absence, 1)
+
+    @property
+    def mgmt_capacity(self) -> float:
+        return float(self.num_managers)
+
+    @property
+    def mgmt_absence(self) -> float:
+        return round(self.num_managers / 12, 1)
+
+    @property
+    def mgmt_net(self) -> float:
+        return round(self.mgmt_capacity - self.mgmt_absence, 1)
 
 
 def _mondays_in_range(start: date, end: date) -> list[date]:
@@ -128,6 +153,7 @@ def _build_capacity_rows(
         _row(LABEL_ENG_NET, capacity.eng_net),
         _row(LABEL_MGMT_CAPACITY, capacity.mgmt_capacity),
         _row(LABEL_MGMT_ABSENCE, capacity.mgmt_absence),
+        _row(LABEL_MGMT_NET, capacity.mgmt_net),
     ]
 
 

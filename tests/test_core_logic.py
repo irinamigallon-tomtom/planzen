@@ -18,10 +18,8 @@ from planzen.config import (
 from planzen.core_logic import CapacityConfig, build_output_table
 
 CAPACITY = CapacityConfig(
-    eng_bruto=40.0,
-    eng_absence=4.0,
-    mgmt_capacity=10.0,
-    mgmt_absence=1.0,
+    num_engineers=5,
+    num_managers=2,
 )
 
 EPICS_DF = pd.DataFrame(
@@ -53,8 +51,8 @@ def _build() -> pd.DataFrame:
 
 def test_output_has_correct_number_of_rows() -> None:
     df = _build()
-    # 5 capacity header rows + 2 epic rows + 1 total row
-    assert len(df) == 8
+    # 6 capacity header rows + 2 epic rows + 1 total row
+    assert len(df) == 9
 
 
 def test_week_columns_are_present() -> None:
@@ -66,11 +64,12 @@ def test_week_columns_are_present() -> None:
 
 def test_epic_total_does_not_exceed_estimation() -> None:
     df = _build()
-    epic_rows = df[~df[OUT_COL_EPIC].isin(
-        ["Engineering Capacity (Bruto)", "Engineering Absence",
-         "Engineering Net Capacity", "Management Capacity",
-         "Management Absence", "Weekly Allocation"]
-    )]
+    header_labels = {
+        "Engineering Capacity (Bruto)", "Engineering Absence",
+        "Engineering Net Capacity", "Management Capacity",
+        "Management Absence", "Management Net Capacity", "Weekly Allocation",
+    }
+    epic_rows = df[~df[OUT_COL_EPIC].isin(header_labels)]
     for _, row in epic_rows.iterrows():
         assert row[OUT_COL_TOTAL_WEEKS] <= row["Estimation"] + 1e-9
 
@@ -88,4 +87,21 @@ def test_weekly_total_does_not_exceed_net_capacity() -> None:
 
 
 def test_eng_net_capacity_is_bruto_minus_absence() -> None:
-    assert CAPACITY.eng_net == 36.0
+    assert CAPACITY.eng_net == round(CAPACITY.eng_bruto - CAPACITY.eng_absence, 1)
+
+
+def test_absence_is_one_twelfth_of_headcount() -> None:
+    # bruto = headcount (1 PW per person); absence = headcount / 12
+    assert CAPACITY.eng_bruto == 5.0
+    assert CAPACITY.eng_absence == round(5 / 12, 1)
+    assert CAPACITY.mgmt_capacity == 2.0
+    assert CAPACITY.mgmt_absence == round(2 / 12, 1)
+
+
+def test_mgmt_net_capacity_row_present() -> None:
+    df = _build()
+    assert "Management Net Capacity" in df[OUT_COL_EPIC].values
+
+
+def test_mgmt_net_is_capacity_minus_absence() -> None:
+    assert CAPACITY.mgmt_net == round(CAPACITY.mgmt_capacity - CAPACITY.mgmt_absence, 1)
