@@ -47,12 +47,18 @@ class CapacityConfig:
     Weekly capacity derived from head counts, in Person-Weeks (PW).
 
     Each person contributes 1 PW of bruto capacity per week.
-    Absence is assumed to be 1/12 of bruto for both engineers and managers.
+
+    Absence can be supplied as a pre-computed per-week value
+    (``eng_absence_per_week`` / ``mgmt_absence_per_week``).  When omitted the
+    tool falls back to the default formula:
+    37 absence days/year ÷ 52 weeks ÷ 5 days/week ≈ 0.142 PW/person/week.
     Net capacity = bruto − absence.
     """
 
     num_engineers: float
     num_managers: float
+    eng_absence_per_week: float | None = None
+    mgmt_absence_per_week: float | None = None
 
     @property
     def eng_bruto(self) -> float:
@@ -60,6 +66,8 @@ class CapacityConfig:
 
     @property
     def eng_absence(self) -> float:
+        if self.eng_absence_per_week is not None:
+            return round(self.eng_absence_per_week, 1)
         return round(self.num_engineers * ABSENCE_PW_PER_PERSON, 1)
 
     @property
@@ -72,6 +80,8 @@ class CapacityConfig:
 
     @property
     def mgmt_absence(self) -> float:
+        if self.mgmt_absence_per_week is not None:
+            return round(self.mgmt_absence_per_week, 1)
         return round(self.num_managers * ABSENCE_PW_PER_PERSON, 1)
 
     @property

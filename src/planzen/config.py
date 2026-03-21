@@ -16,6 +16,20 @@ COL_PRIORITY = "Priority"
 # Optional input columns (used when present)
 COL_MILESTONE = "Milestone"
 
+# Team config rows — appear at the top of the epics sheet before the epic data.
+# The Estimation column holds the numeric value for each config row.
+TEAM_LABEL_ENGINEERS      = "Engineer Bruto Capacity"
+TEAM_LABEL_MANAGERS       = "Management Bruto Capacity"
+TEAM_LABEL_ENG_ABSENCE    = "Engineer Absence (days)"   # optional
+TEAM_LABEL_MGMT_ABSENCE   = "Manager Absence (days)"    # optional
+
+TEAM_CONFIG_LABELS = {
+    TEAM_LABEL_ENGINEERS,
+    TEAM_LABEL_MANAGERS,
+    TEAM_LABEL_ENG_ABSENCE,
+    TEAM_LABEL_MGMT_ABSENCE,
+}
+
 # Output table column labels
 OUT_COL_BUDGET_BUCKET = "Budget Bucket"
 OUT_COL_EPIC = "Epic / Capacity Metric"

@@ -20,6 +20,11 @@ from planzen.config import (
     COL_LINK,
     COL_PRIORITY,
     COL_TYPE,
+    TEAM_CONFIG_LABELS,
+    TEAM_LABEL_ENG_ABSENCE,
+    TEAM_LABEL_ENGINEERS,
+    TEAM_LABEL_MGMT_ABSENCE,
+    TEAM_LABEL_MANAGERS,
     LABEL_ENG_ABSENCE,
     LABEL_ENG_BRUTO,
     LABEL_ENG_NET,
@@ -60,26 +65,78 @@ def formulas_path(path: Path) -> Path:
     return path.with_stem(path.stem + "_formulas")
 
 
-def read_plan(path: Path) -> pd.DataFrame:
+def read_input(path: Path) -> tuple[
+    pd.DataFrame,   # epics
+    float,          # num_engineers
+    float,          # num_managers
+    float | None,   # eng_absence_days (total for quarter, or None → use default)
+    float | None,   # mgmt_absence_days (total for quarter, or None → use default)
+]:
     """
-    Read the input Excel file and return a DataFrame with all its columns.
+    Read the input Excel file and return epics plus team capacity config.
 
-    Required columns: Epic Description, Estimation, Budget Bucket, Type, Link, Priority.
-    Optional columns (e.g. Milestone) and any extra columns are kept as-is.
-    Column order in the file does not matter.
+    The sheet must begin with team config rows in columns A/B before the epic
+    data.  Recognised config labels (in the ``Epic Description`` column):
+
+    - ``Engineer Bruto Capacity``  *(required)*
+    - ``Management Bruto Capacity`` *(required)*
+    - ``Engineer Absence (days)``  *(optional — total days for the quarter)*
+    - ``Manager Absence (days)``   *(optional — total days for the quarter)*
+
+    Config rows are stripped before the epic DataFrame is returned.  The epic
+    rows must contain all required columns; column order and extra columns are
+    preserved.
 
     Raises
     ------
     ValueError
-        If any required columns are missing from the file.
+        If required config rows or epic columns are missing.
     """
     df = pd.read_excel(path)
-    missing = REQUIRED_INPUT_COLUMNS - set(df.columns)
+
+    if COL_EPIC not in df.columns or COL_ESTIMATION not in df.columns:
+        raise ValueError(
+            f"Input file must have '{COL_EPIC}' and '{COL_ESTIMATION}' columns."
+        )
+
+    # --- extract team config rows ---
+    config_mask = df[COL_EPIC].isin(TEAM_CONFIG_LABELS)
+    config_df = df[config_mask].set_index(COL_EPIC)[COL_ESTIMATION]
+
+    if TEAM_LABEL_ENGINEERS not in config_df.index:
+        raise ValueError(
+            f"Input file missing required config row: '{TEAM_LABEL_ENGINEERS}'"
+        )
+    if TEAM_LABEL_MANAGERS not in config_df.index:
+        raise ValueError(
+            f"Input file missing required config row: '{TEAM_LABEL_MANAGERS}'"
+        )
+
+    num_engineers: float = float(config_df[TEAM_LABEL_ENGINEERS])
+    num_managers: float  = float(config_df[TEAM_LABEL_MANAGERS])
+    eng_absence_days: float | None = (
+        float(config_df[TEAM_LABEL_ENG_ABSENCE])
+        if TEAM_LABEL_ENG_ABSENCE in config_df.index
+        and pd.notna(config_df[TEAM_LABEL_ENG_ABSENCE])
+        else None
+    )
+    mgmt_absence_days: float | None = (
+        float(config_df[TEAM_LABEL_MGMT_ABSENCE])
+        if TEAM_LABEL_MGMT_ABSENCE in config_df.index
+        and pd.notna(config_df[TEAM_LABEL_MGMT_ABSENCE])
+        else None
+    )
+
+    # --- epic rows (everything that isn't a config row) ---
+    epics_df = df[~config_mask].reset_index(drop=True)
+
+    missing = REQUIRED_INPUT_COLUMNS - set(epics_df.columns)
     if missing:
         raise ValueError(
             f"Input file is missing required columns: {sorted(missing)}"
         )
-    return df
+
+    return epics_df, num_engineers, num_managers, eng_absence_days, mgmt_absence_days
 
 
 def write_output(df: pd.DataFrame, path: Path) -> None:

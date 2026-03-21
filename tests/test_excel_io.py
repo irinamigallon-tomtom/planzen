@@ -29,7 +29,7 @@ from planzen.config import (
     OUT_COL_TOTAL_WEEKS,
 )
 from planzen.core_logic import CapacityConfig, build_output_table
-from planzen.excel_io import formulas_path, write_output, write_output_with_formulas
+from planzen.excel_io import formulas_path, read_input, write_output, write_output_with_formulas
 
 # ---------------------------------------------------------------------------
 # Shared fixtures and helpers
@@ -130,69 +130,118 @@ def test_formulas_path_preserves_directory() -> None:
 # read_plan: column validation and flexibility
 # ---------------------------------------------------------------------------
 
-def test_read_plan_accepts_required_columns(tmp_path: Path) -> None:
-    """A file with exactly the required columns is accepted."""
-    import openpyxl as xl
-    from planzen.excel_io import read_plan
-    p = tmp_path / "input.xlsx"
-    df = pd.DataFrame([{
+def _base_row(**extra) -> dict:
+    return {
         "Epic Description": "E", "Estimation": 1.0, "Budget Bucket": "B",
         "Type": "Feature", "Link": "http://x", "Priority": 0,
-    }])
-    df.to_excel(p, index=False)
-    result = read_plan(p)
-    assert "Epic Description" in result.columns
+        **extra,
+    }
 
 
-def test_read_plan_accepts_extra_columns(tmp_path: Path) -> None:
-    """Extra/unexpected columns in the file must be preserved without error."""
-    from planzen.excel_io import read_plan
+def _config_rows() -> list[dict]:
+    return [
+        {"Epic Description": "Engineer Bruto Capacity", "Estimation": 5.0},
+        {"Epic Description": "Management Bruto Capacity", "Estimation": 2.0},
+    ]
+
+
+def _write_input(path: Path, epics: list[dict], config: list[dict] | None = None) -> None:
+    rows = (config if config is not None else _config_rows()) + epics
+    pd.DataFrame(rows).to_excel(path, index=False)
+
+
+# ---------------------------------------------------------------------------
+# read_input: team config + epic parsing
+# ---------------------------------------------------------------------------
+
+def test_read_input_returns_engineers_and_managers(tmp_path: Path) -> None:
     p = tmp_path / "input.xlsx"
-    df = pd.DataFrame([{
-        "Epic Description": "E", "Estimation": 1.0, "Budget Bucket": "B",
-        "Type": "Feature", "Link": "http://x", "Priority": 0,
-        "Extra Column": "ignored", "Another Unexpected": 42,
-    }])
-    df.to_excel(p, index=False)
-    result = read_plan(p)
-    assert "Extra Column" in result.columns
-    assert "Another Unexpected" in result.columns
+    _write_input(p, [_base_row()])
+    _, eng, mgr, _, _ = read_input(p)
+    assert eng == 5.0
+    assert mgr == 2.0
 
 
-def test_read_plan_accepts_optional_milestone(tmp_path: Path) -> None:
-    """Milestone is optional — its presence or absence must not raise."""
-    from planzen.excel_io import read_plan
-    p_with = tmp_path / "with_milestone.xlsx"
-    p_without = tmp_path / "without_milestone.xlsx"
-    base = {"Epic Description": "E", "Estimation": 1.0, "Budget Bucket": "B",
-            "Type": "Feature", "Link": "http://x", "Priority": 0}
-    pd.DataFrame([{**base, "Milestone": "Q1"}]).to_excel(p_with, index=False)
-    pd.DataFrame([base]).to_excel(p_without, index=False)
-    read_plan(p_with)    # must not raise
-    read_plan(p_without)  # must not raise
-
-
-def test_read_plan_preserves_column_order(tmp_path: Path) -> None:
-    """Columns must be returned in the order they appear in the file."""
-    from planzen.excel_io import read_plan
+def test_read_input_returns_none_when_absence_omitted(tmp_path: Path) -> None:
     p = tmp_path / "input.xlsx"
-    # Deliberately scrambled order
-    df = pd.DataFrame([{
-        "Priority": 0, "Link": "http://x", "Estimation": 1.0,
-        "Type": "Feature", "Budget Bucket": "B", "Epic Description": "E",
-    }])
-    df.to_excel(p, index=False)
-    result = read_plan(p)
-    assert list(result.columns) == ["Priority", "Link", "Estimation", "Type", "Budget Bucket", "Epic Description"]
+    _write_input(p, [_base_row()])
+    _, _, _, eng_abs, mgmt_abs = read_input(p)
+    assert eng_abs is None
+    assert mgmt_abs is None
 
 
-def test_read_plan_raises_for_missing_required(tmp_path: Path) -> None:
-    """Missing required columns must raise ValueError naming the absent columns."""
-    from planzen.excel_io import read_plan
-    p = tmp_path / "bad.xlsx"
-    pd.DataFrame([{"Epic Description": "E", "Estimation": 1.0}]).to_excel(p, index=False)
+def test_read_input_parses_optional_absence_days(tmp_path: Path) -> None:
+    p = tmp_path / "input.xlsx"
+    config = _config_rows() + [
+        {"Epic Description": "Engineer Absence (days)", "Estimation": 10.0},
+        {"Epic Description": "Manager Absence (days)", "Estimation": 4.0},
+    ]
+    _write_input(p, [_base_row()], config=config)
+    _, _, _, eng_abs, mgmt_abs = read_input(p)
+    assert eng_abs == 10.0
+    assert mgmt_abs == 4.0
+
+
+def test_read_input_epic_rows_exclude_config_rows(tmp_path: Path) -> None:
+    p = tmp_path / "input.xlsx"
+    _write_input(p, [_base_row()])
+    epics, _, _, _, _ = read_input(p)
+    assert "Engineer Bruto Capacity" not in epics["Epic Description"].values
+    assert "Management Bruto Capacity" not in epics["Epic Description"].values
+    assert len(epics) == 1
+
+
+def test_read_input_accepts_extra_columns(tmp_path: Path) -> None:
+    p = tmp_path / "input.xlsx"
+    _write_input(p, [_base_row(**{"Extra Col": "ignored"})])
+    epics, _, _, _, _ = read_input(p)
+    assert "Extra Col" in epics.columns
+
+
+def test_read_input_accepts_optional_milestone(tmp_path: Path) -> None:
+    p_with = tmp_path / "with.xlsx"
+    p_without = tmp_path / "without.xlsx"
+    _write_input(p_with, [_base_row(Milestone="Q1")])
+    _write_input(p_without, [_base_row()])
+    read_input(p_with)
+    read_input(p_without)
+
+
+def test_read_input_preserves_column_order(tmp_path: Path) -> None:
+    p = tmp_path / "input.xlsx"
+    # Config rows come first; their keys (Epic Description, Estimation) set the
+    # initial column order.  Epic-only keys follow in insertion order.
+    rows = _config_rows() + [{
+        "Epic Description": "E", "Estimation": 1.0,
+        "Priority": 0, "Link": "http://x",
+        "Type": "Feature", "Budget Bucket": "B",
+    }]
+    pd.DataFrame(rows).to_excel(p, index=False)
+    epics, _, _, _, _ = read_input(p)
+    # Column order must match the file: Epic Description and Estimation come first
+    # (from config rows), then the remaining epic columns.
+    assert epics.columns[0] == "Epic Description"
+    assert epics.columns[1] == "Estimation"
+    # All required epic columns must be present
+    for col in ("Priority", "Link", "Type", "Budget Bucket"):
+        assert col in epics.columns
+
+
+def test_read_input_raises_for_missing_engineers_row(tmp_path: Path) -> None:
+    p = tmp_path / "input.xlsx"
+    config = [{"Epic Description": "Management Bruto Capacity", "Estimation": 2.0}]
+    _write_input(p, [_base_row()], config=config)
+    with pytest.raises(ValueError, match="Engineer Bruto Capacity"):
+        read_input(p)
+
+
+def test_read_input_raises_for_missing_required_epic_columns(tmp_path: Path) -> None:
+    p = tmp_path / "input.xlsx"
+    # Epic row missing Budget Bucket, Type, Link, Priority
+    rows = _config_rows() + [{"Epic Description": "E", "Estimation": 1.0}]
+    pd.DataFrame(rows).to_excel(p, index=False)
     with pytest.raises(ValueError, match="missing required columns"):
-        read_plan(p)
+        read_input(p)
 
 
 # ---------------------------------------------------------------------------
