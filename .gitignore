@@ -31,3 +31,4 @@ htmlcov/
 ~$*.xlsx
 ~$*.xls
 tmp/
+output

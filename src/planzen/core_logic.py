@@ -14,6 +14,10 @@ import pandas as pd
 
 from planzen.config import (
     ABSENCE_PW_PER_PERSON,
+    ALLOC_MODE_DEFAULT,
+    ALLOC_MODE_GAPS,
+    ALLOC_MODE_UNIFORM,
+    COL_ALLOC_MODE,
     COL_BUDGET_BUCKET,
     COL_EPIC,
     COL_ESTIMATION,
@@ -28,12 +32,14 @@ from planzen.config import (
     LABEL_MGMT_NET,
     LABEL_TOTAL_BUCKET,
     LABEL_TOTAL_ROW,
+    MAX_WEEKLY_ALLOC_PW,
     OUT_COL_BUDGET_BUCKET,
     OUT_COL_EPIC,
     OUT_COL_ESTIMATION,
     OUT_COL_OFF_ESTIMATE,
     OUT_COL_PRIORITY,
     OUT_COL_TOTAL_WEEKS,
+    VALID_ALLOC_MODES,
 )
 
 _NON_EPIC_LABELS = frozenset({
@@ -168,27 +174,43 @@ def build_output_table(
     """
     Build the output allocation table from the parsed epics DataFrame.
 
+    Overflow into the next quarter is automatic: if the total estimation
+    exceeds ``capacity.eng_net × n_primary_weeks``, 13 additional Mondays
+    are appended to the allocation window.
+
     Parameters
     ----------
     epics_df:
-        DataFrame with columns: Epics, Estimation, Budget Bucket, Priority, Milestone.
+        DataFrame with columns: Epic Description, Estimation, Budget Bucket, Priority, …
     capacity:
         Weekly capacity values (bruto, absence, management).
     start / end:
-        Date range; week columns are generated for every Monday in [start, end].
+        Primary quarter date range; one week column per Monday in [start, end].
 
     Returns
     -------
     DataFrame matching the structure described in LOGIC.md.
     """
-    mondays = _mondays_in_range(start, end)
+    primary_mondays = _mondays_in_range(start, end)
+    n_base_weeks = len(primary_mondays)
+
+    total_estimation = float(epics_df[COL_ESTIMATION].sum())
+    quarter_capacity = capacity.eng_net * n_base_weeks
+
+    if total_estimation > quarter_capacity + 1e-9:
+        overflow_start = end + timedelta(weeks=1)
+        overflow_end = overflow_start + timedelta(weeks=12)
+        mondays = primary_mondays + _mondays_in_range(overflow_start, overflow_end)
+    else:
+        mondays = primary_mondays
+
     week_labels = [d.strftime("%b.%d") for d in mondays]
 
     # --- capacity header rows ---
     capacity_rows = _build_capacity_rows(capacity, week_labels)
 
-    # --- epic rows with evenly distributed allocation ---
-    epic_rows = _allocate_epics(epics_df, capacity, mondays, week_labels)
+    # --- epic rows with allocation per mode ---
+    epic_rows = _allocate_epics(epics_df, capacity, mondays, week_labels, n_base_weeks)
 
     # --- sanity-check the allocator output (violations indicate a logic bug) ---
     total_row = _build_total_row(epic_rows, week_labels)
@@ -251,32 +273,50 @@ def _allocate_epics(
     capacity: CapacityConfig,
     mondays: list[date],
     week_labels: list[str],
+    n_base_weeks: int,
 ) -> list[dict]:
     """
-    Distribute each Epic's Estimation across weeks, sorted by Priority so that
-    higher-priority epics (lower number) claim capacity first.
+    Distribute each Epic's Estimation across weeks, sorted by Priority.
 
-    Allocation rules:
-    - Per-epic sum ≤ Estimation.
-    - Per-week sum across all epics ≤ Engineer Net Capacity.
-    - Sequential: once an epic starts, every week with available capacity must
-      also receive allocation (≥ 0.1 PW), until the budget is exhausted.
-    - A week gets 0 for an epic only when that week's remaining capacity is
-      fully consumed by higher-priority epics.
+    Allocation mode is read from the optional ``Allocation Mode`` column:
+
+    * **Sprint** (default): claim up to ``MAX_WEEKLY_ALLOC_PW`` per week, sequential.
+    * **Uniform**: spread ``Estimation / n_base_weeks`` evenly, sequential.
+    * **Gaps**: Sprint rate but without the sequential minimum — a week
+      may receive 0 even when capacity > 0.
+
+    Sequential means: once an epic starts, every subsequent week with available
+    capacity must receive ≥ 0.1 PW.
     """
     n_weeks = len(mondays)
     rows: list[dict] = []
 
-    # Higher-priority epics (lower Priority number) allocate first.
     sorted_epics = epics_df.sort_values(COL_PRIORITY, kind="stable")
-
-    # Track remaining net capacity per week across all epics.
     remaining: list[float] = [capacity.eng_net] * n_weeks
+    has_mode_col = COL_ALLOC_MODE in epics_df.columns
 
     for _, epic in sorted_epics.iterrows():
         estimation = float(epic[COL_ESTIMATION])
-        # Minimum weekly unit is 0.1 PW; prevent rounding tiny estimations to 0.
-        weekly_ideal = max(round(estimation / n_weeks, 1), 0.1) if estimation > 0 else 0.0
+
+        # --- resolve allocation mode ---
+        if has_mode_col:
+            raw = epic[COL_ALLOC_MODE]
+            mode = str(raw).strip() if pd.notna(raw) else ""
+        else:
+            mode = ""
+        if mode not in VALID_ALLOC_MODES:
+            mode = ALLOC_MODE_DEFAULT
+
+        # --- per-mode settings ---
+        if mode == ALLOC_MODE_UNIFORM:
+            weekly_ideal = (
+                max(round(estimation / n_base_weeks, 1), 0.1) if estimation > 0 else 0.0
+            )
+            enforce_sequential = True
+        else:
+            # Sprint and Gaps both target MAX_WEEKLY_ALLOC_PW
+            weekly_ideal = MAX_WEEKLY_ALLOC_PW if estimation > 0 else 0.0
+            enforce_sequential = (mode != ALLOC_MODE_GAPS)
 
         allocations: list[float] = []
         total_allocated = 0.0
@@ -286,9 +326,8 @@ def _allocate_epics(
             if budget_left <= 1e-9 or remaining[i] <= 1e-9:
                 alloc = 0.0
             else:
-                # Allocate weekly_ideal, but at least 0.1 to preserve sequential continuity.
                 alloc = round(min(weekly_ideal, remaining[i], budget_left), 1)
-                if alloc < 0.1:
+                if enforce_sequential and alloc < 0.1:
                     alloc = round(min(0.1, remaining[i], budget_left), 1)
 
             allocations.append(alloc)

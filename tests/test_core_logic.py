@@ -13,11 +13,16 @@ from planzen.core_logic import (
     build_output_table,
     get_quarter_dates,
     validate_allocation,
+    _mondays_in_range,
 )
 from planzen.config import (
+    ALLOC_MODE_GAPS,
+    ALLOC_MODE_SPRINT,
+    ALLOC_MODE_UNIFORM,
     LABEL_CAPACITY_ALERT_ROW,
     LABEL_ENG_NET,
     LABEL_TOTAL_ROW,
+    MAX_WEEKLY_ALLOC_PW,
     OUT_COL_EPIC,
     OUT_COL_ESTIMATION,
     OUT_COL_OFF_ESTIMATE,
@@ -235,12 +240,14 @@ def test_no_gap_when_capacity_available() -> None:
 
 
 def test_gap_admissible_when_capacity_exhausted() -> None:
-    """Lower-priority epic gets 0 only when capacity is fully consumed by higher-priority."""
+    """Lower-priority epic gets 0 when a Uniform high-priority epic fills all capacity."""
     greedy_epics = pd.DataFrame([
         {"Epic Description": "Greedy", "Estimation": 999.0, "Budget Bucket": "A",
-         "Type": "Feature", "Link": "link-g", "Priority": 0, "Milestone": "Q1"},
+         "Type": "Feature", "Link": "link-g", "Priority": 0, "Milestone": "Q1",
+         "Allocation Mode": ALLOC_MODE_UNIFORM},   # Uniform → fills all capacity
         {"Epic Description": "Starved", "Estimation": 10.0,  "Budget Bucket": "B",
-         "Type": "Feature", "Link": "link-s", "Priority": 1, "Milestone": "Q1"},
+         "Type": "Feature", "Link": "link-s", "Priority": 1, "Milestone": "Q1",
+         "Allocation Mode": ALLOC_MODE_UNIFORM},
     ])
     df = build_output_table(greedy_epics, CAPACITY, START, END)
     week_cols = [c for c in df.columns if c not in
@@ -345,12 +352,22 @@ def test_off_estimate_false_when_exactly_allocated() -> None:
 
 def test_off_capacity_true_when_weekly_total_differs() -> None:
     """Off Capacity = True when weekly total deviates from eng_net by > 0.1."""
-    df = _build()
+    # Single small epic (estimation=0.2) fills only 0.1/week for 2 weeks → total << eng_net=4.3
+    tiny_epic = pd.DataFrame([{
+        "Epic Description": "Tiny",
+        "Estimation": 0.2,
+        "Budget Bucket": "Core",
+        "Type": "Feature",
+        "Link": "link",
+        "Priority": 0,
+        "Milestone": "Q1",
+    }])
+    df = build_output_table(tiny_epic, CAPACITY, START, END)
     alert_row = df[df[OUT_COL_EPIC] == LABEL_CAPACITY_ALERT_ROW].iloc[0]
     week_cols = [c for c in df.columns if c not in
                  {"Budget Bucket", "Epic / Capacity Metric", "Priority", "Estimation",
                   "Total Weeks", "Off Estimate"}]
-    # With two sprint epics (2.0/week each = 4.0 total) vs eng_net=4.3, all weeks are off
+    # Weekly total (max 0.1) is far below eng_net=4.3 → all weeks are off
     for w in week_cols:
         assert alert_row[w] is True
 
@@ -376,3 +393,167 @@ def test_off_capacity_false_when_weekly_total_at_capacity() -> None:
                   "Total Weeks", "Off Estimate"}]
     for w in week_cols:
         assert alert_row[w] is False
+
+
+# ---------------------------------------------------------------------------
+# Allocation mode tests
+# ---------------------------------------------------------------------------
+
+_WEEK_COLS_SET = {"Budget Bucket", "Epic / Capacity Metric", "Priority", "Estimation",
+                  "Total Weeks", "Off Estimate"}
+
+
+def _make_single_epic(estimation: float, mode: str, priority: int = 0) -> pd.DataFrame:
+    return pd.DataFrame([{
+        "Epic Description": "E",
+        "Estimation": estimation,
+        "Budget Bucket": "Core",
+        "Type": "Feature",
+        "Link": "link",
+        "Priority": priority,
+        "Milestone": "Q1",
+        "Allocation Mode": mode,
+    }])
+
+
+def test_sprint_caps_at_max_weekly_alloc() -> None:
+    """Sprint: no week may exceed MAX_WEEKLY_ALLOC_PW for a single epic."""
+    df = build_output_table(_make_single_epic(50.0, ALLOC_MODE_SPRINT), CAPACITY, START, END)
+    week_cols = [c for c in df.columns if c not in _WEEK_COLS_SET]
+    row = df[df[OUT_COL_EPIC] == "E"].iloc[0]
+    for w in week_cols:
+        assert row[w] <= MAX_WEEKLY_ALLOC_PW + 1e-9, (
+            f"Sprint exceeded cap in {w}: {row[w]}"
+        )
+
+
+def test_sprint_is_sequential() -> None:
+    """Sprint: once started, every week with available capacity gets ≥ 0.1 PW."""
+    df = build_output_table(_make_single_epic(50.0, ALLOC_MODE_SPRINT), CAPACITY, START, END)
+    week_cols = [c for c in df.columns if c not in _WEEK_COLS_SET]
+    row = df[df[OUT_COL_EPIC] == "E"].iloc[0]
+    net_row = df[df[OUT_COL_EPIC] == LABEL_ENG_NET].iloc[0]
+    for w in week_cols:
+        if net_row[w] > 0:
+            assert row[w] >= 0.1, f"Sprint gap in {w} despite available capacity"
+
+
+def test_uniform_distributes_evenly() -> None:
+    """Uniform: allocation per week equals round(estimation / n_weeks, 1)."""
+    cap = CapacityConfig(num_engineers=5, num_managers=0)
+    # 4 weeks, estimation=2.0 → weekly_ideal = round(2.0/4, 1) = 0.5
+    df = build_output_table(_make_single_epic(2.0, ALLOC_MODE_UNIFORM), cap, START, END)
+    week_cols = [c for c in df.columns if c not in _WEEK_COLS_SET]
+    row = df[df[OUT_COL_EPIC] == "E"].iloc[0]
+    expected = round(2.0 / len(week_cols), 1)
+    for w in week_cols:
+        assert row[w] == pytest.approx(expected, abs=1e-6), (
+            f"Uniform week {w}: expected {expected}, got {row[w]}"
+        )
+
+
+def test_uniform_is_sequential() -> None:
+    """Uniform: once started, every week with capacity gets ≥ 0.1 PW (while budget remains)."""
+    # Use 999 PW so budget is never exhausted — all weeks must be non-zero
+    df = build_output_table(_make_single_epic(999.0, ALLOC_MODE_UNIFORM), CAPACITY, START, END)
+    week_cols = [c for c in df.columns if c not in _WEEK_COLS_SET]
+    row = df[df[OUT_COL_EPIC] == "E"].iloc[0]
+    net_row = df[df[OUT_COL_EPIC] == LABEL_ENG_NET].iloc[0]
+    for w in week_cols:
+        if net_row[w] > 0:
+            assert row[w] >= 0.1, f"Uniform gap in {w} despite available capacity"
+
+
+def test_gaps_allowed_skips_weeks_below_minimum() -> None:
+    """Gaps: if remaining capacity rounds below 0.1, week gets 0 (no forcing)."""
+    # Use 2 epics: Sprint eats 2.0/week, leaving 2.3 for gaps epic.
+    # Then add a third tiny epic: if capacity remaining rounds to < 0.1, gaps gets 0.
+    # Easiest: 1 engineer (eng_net ≈ 0.9/week). Sprint epic: 0.9/week (capped by capacity).
+    # Then gaps epic: remaining = 0. Gets 0 every week. That's fine — tests 0 when capacity=0.
+    # Better test: force remaining < 0.1 by saturating with multiple Sprint epics.
+    cap = CapacityConfig(num_engineers=1, num_managers=0)  # eng_net ≈ 0.9
+    epics = pd.DataFrame([
+        {"Epic Description": "Filler", "Estimation": 999.0, "Budget Bucket": "C",
+         "Type": "F", "Link": "l1", "Priority": 0, "Milestone": "Q1",
+         "Allocation Mode": ALLOC_MODE_SPRINT},   # claims min(2.0, 0.9) = 0.9 each week
+        {"Epic Description": "Gaps", "Estimation": 10.0, "Budget Bucket": "C",
+         "Type": "F", "Link": "l2", "Priority": 1, "Milestone": "Q1",
+         "Allocation Mode": ALLOC_MODE_GAPS},     # nothing left → 0 each week
+    ])
+    df = build_output_table(epics, cap, START, END)
+    week_cols = [c for c in df.columns if c not in _WEEK_COLS_SET]
+    gaps_row = df[df[OUT_COL_EPIC] == "Gaps"].iloc[0]
+    # All capacity consumed by Filler → Gaps gets 0 without sequential forcing
+    for w in week_cols:
+        assert gaps_row[w] == 0.0, f"Gaps got non-zero in {w}: {gaps_row[w]}"
+
+
+def test_blank_alloc_mode_defaults_to_sprint() -> None:
+    """A blank or missing Allocation Mode column results in Sprint behaviour."""
+    # No mode column → same as Sprint
+    no_mode = pd.DataFrame([{
+        "Epic Description": "E", "Estimation": 50.0, "Budget Bucket": "Core",
+        "Type": "F", "Link": "l", "Priority": 0, "Milestone": "Q1",
+    }])
+    sprint = _make_single_epic(50.0, ALLOC_MODE_SPRINT)
+    df_no_mode = build_output_table(no_mode, CAPACITY, START, END)
+    df_sprint  = build_output_table(sprint,  CAPACITY, START, END)
+    week_cols = [c for c in df_no_mode.columns if c not in _WEEK_COLS_SET]
+    row_no_mode = df_no_mode[df_no_mode[OUT_COL_EPIC] == "E"].iloc[0]
+    row_sprint  = df_sprint [df_sprint [OUT_COL_EPIC] == "E"].iloc[0]
+    for w in week_cols:
+        assert row_no_mode[w] == row_sprint[w]
+
+
+def test_unknown_alloc_mode_falls_back_to_sprint() -> None:
+    """An unrecognised Allocation Mode is treated as Sprint."""
+    unknown = _make_single_epic(50.0, "Turbo")
+    sprint   = _make_single_epic(50.0, ALLOC_MODE_SPRINT)
+    df_u = build_output_table(unknown, CAPACITY, START, END)
+    df_s = build_output_table(sprint,  CAPACITY, START, END)
+    week_cols = [c for c in df_u.columns if c not in _WEEK_COLS_SET]
+    r_u = df_u[df_u[OUT_COL_EPIC] == "E"].iloc[0]
+    r_s = df_s[df_s[OUT_COL_EPIC] == "E"].iloc[0]
+    for w in week_cols:
+        assert r_u[w] == r_s[w]
+
+# ---------------------------------------------------------------------------
+# Overflow tests  (automatic: triggers when Σ(Estimation) > eng_net × n_weeks)
+# ---------------------------------------------------------------------------
+
+def test_overflow_extends_week_columns() -> None:
+    """When total estimation exceeds quarter capacity, output has 26 week columns."""
+    # EPICS_DF total = 120+80 = 200 PW >> Q1 capacity (~55 PW) → overflow
+    q1_start, q1_end = FISCAL_QUARTERS[1]
+    df = build_output_table(EPICS_DF, CAPACITY, q1_start, q1_end)
+    week_cols = [c for c in df.columns if c not in _WEEK_COLS_SET]
+    assert len(week_cols) == 26, f"Expected 26 week columns, got {len(week_cols)}"
+
+
+def test_overflow_week_labels_span_both_quarters() -> None:
+    """Week column headers should include Mondays from Q1 and Q2."""
+    q1_start, q1_end = FISCAL_QUARTERS[1]
+    df = build_output_table(EPICS_DF, CAPACITY, q1_start, q1_end)
+    cols = list(df.columns)
+    assert "Dec.29" in cols   # first Q1 Monday
+    assert "Jun.22" in cols   # last Q2 Monday
+
+
+def test_overflow_respects_capacity_constraint() -> None:
+    """Even with overflow, no week may exceed Engineer Net Capacity."""
+    q1_start, q1_end = FISCAL_QUARTERS[1]
+    df = build_output_table(EPICS_DF, CAPACITY, q1_start, q1_end)
+    violations = validate_allocation(df, CAPACITY)
+    assert violations == [], f"Violations with overflow: {violations}"
+
+
+def test_no_overflow_when_estimation_fits() -> None:
+    """When total estimation fits within the quarter, output has exactly 13 week columns."""
+    q1_start, q1_end = FISCAL_QUARTERS[1]
+    tiny = pd.DataFrame([{
+        "Epic Description": "Small", "Estimation": 1.0,
+        "Budget Bucket": "Core", "Type": "F", "Link": "l", "Priority": 0, "Milestone": "Q1",
+    }])
+    df = build_output_table(tiny, CAPACITY, q1_start, q1_end)
+    week_cols = [c for c in df.columns if c not in _WEEK_COLS_SET]
+    assert len(week_cols) == 13

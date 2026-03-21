@@ -15,6 +15,8 @@ import pandas as pd
 from openpyxl.utils import get_column_letter
 
 from planzen.config import (
+    ALLOC_MODE_DEFAULT,
+    COL_ALLOC_MODE,
     COL_BUDGET_BUCKET,
     COL_EPIC,
     COL_ESTIMATION,
@@ -39,6 +41,7 @@ from planzen.config import (
     OUT_COL_OFF_ESTIMATE,
     OUT_COL_PRIORITY,
     OUT_COL_TOTAL_WEEKS,
+    VALID_ALLOC_MODES,
 )
 
 REQUIRED_INPUT_COLUMNS = {
@@ -90,9 +93,45 @@ _TEAM_CONFIG_LABELS_NORM: dict[str, str] = {
     for label in TEAM_CONFIG_LABELS
 }
 
+_KNOWN_COLUMNS: set[str] = {
+    COL_EPIC, COL_ESTIMATION, COL_BUDGET_BUCKET, COL_LINK,
+    COL_PRIORITY, COL_ALLOC_MODE,
+}
+_KNOWN_COLUMNS_LOWER: dict[str, str] = {c.lower(): c for c in _KNOWN_COLUMNS}
+
+
+def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Rename DataFrame columns to their canonical form (case-insensitive, stripped)."""
+    rename = {
+        col: _KNOWN_COLUMNS_LOWER[col.strip().lower()]
+        for col in df.columns
+        if isinstance(col, str) and col.strip().lower() in _KNOWN_COLUMNS_LOWER
+        and col != _KNOWN_COLUMNS_LOWER[col.strip().lower()]
+    }
+    if rename:
+        _log.info("Normalising column names: %s", rename)
+    return df.rename(columns=rename)
+
+
 def formulas_path(path: Path) -> Path:
     """Return the sibling path for the formulas variant of an output file."""
     return path.with_stem(path.stem + "_formulas")
+
+
+def _config_label_series(df: pd.DataFrame) -> pd.Series:
+    """Return a Series of normalised config labels for each row.
+
+    Uses ``Epic Description`` as the primary source; falls back to
+    ``Budget Bucket`` when ``Epic Description`` is blank, so files that
+    place team config labels in either column are accepted.
+    """
+    epic_vals = df[COL_EPIC].fillna("").astype(str).str.strip() if COL_EPIC in df.columns else pd.Series("", index=df.index)
+    if COL_BUDGET_BUCKET in df.columns:
+        bucket_vals = df[COL_BUDGET_BUCKET].fillna("").astype(str).str.strip()
+        label_vals = epic_vals.where(epic_vals != "", bucket_vals)
+    else:
+        label_vals = epic_vals
+    return label_vals.apply(_normalize_config_label)
 
 
 def validate_input_file(path: Path) -> list[str]:
@@ -115,6 +154,7 @@ def validate_input_file(path: Path) -> list[str]:
 
     try:
         df = pd.read_excel(path)
+        df = _normalize_columns(df)
     except Exception as exc:
         errors.append(
             f"Cannot read '{path}' as an Excel file: {exc}\n"
@@ -134,7 +174,7 @@ def validate_input_file(path: Path) -> list[str]:
         return errors  # can't proceed without these two columns
 
     # --- team config rows (normalised matching) ---
-    epic_norm = df[COL_EPIC].apply(_normalize_config_label)
+    epic_norm = _config_label_series(df)
     config_mask = epic_norm.isin(_TEAM_CONFIG_LABELS_NORM)
     config_rows = df[config_mask].copy()
     config_rows[COL_EPIC] = epic_norm[config_mask].map(_TEAM_CONFIG_LABELS_NORM)
@@ -212,10 +252,7 @@ def validate_input_file(path: Path) -> list[str]:
             val = row[COL_ESTIMATION]
             name = row.get(COL_EPIC, f"row {i + 1}")
             if pd.isna(val):
-                errors.append(
-                    f'Epic "{name}": "Estimation" is empty.\n'
-                    "  → Enter the total effort in Person-Weeks, e.g. 4.5."
-                )
+                pass  # empty Estimation defaults to 0 at read time
             else:
                 try:
                     fval = float(val)
@@ -249,6 +286,17 @@ def validate_input_file(path: Path) -> list[str]:
                         "  → Enter a numeric priority, e.g. 1."
                     )
 
+    if COL_ALLOC_MODE in epics_df.columns:
+        for i, row in epics_df.iterrows():
+            val = row[COL_ALLOC_MODE]
+            if pd.notna(val) and str(val).strip() and str(val).strip() not in VALID_ALLOC_MODES:
+                name = row.get(COL_EPIC, f"row {i + 1}")
+                errors.append(
+                    f'Epic "{name}": invalid "Allocation Mode": {val!r}.\n'
+                    f'  → Valid values: {", ".join(sorted(VALID_ALLOC_MODES))}'
+                    f" (or leave blank to use the default: {ALLOC_MODE_DEFAULT})."
+                )
+
     return errors
 
 
@@ -280,6 +328,7 @@ def read_input(path: Path) -> tuple[
         If required config rows or epic columns are missing.
     """
     df = pd.read_excel(path)
+    df = _normalize_columns(df)
 
     if COL_EPIC not in df.columns or COL_ESTIMATION not in df.columns:
         raise ValueError(
@@ -287,7 +336,7 @@ def read_input(path: Path) -> tuple[
         )
 
     # --- extract team config rows (normalised matching) ---
-    epic_norm = df[COL_EPIC].apply(_normalize_config_label)
+    epic_norm = _config_label_series(df)
     config_mask = epic_norm.isin(_TEAM_CONFIG_LABELS_NORM)
     config_rows = df[config_mask].copy()
     config_rows[COL_EPIC] = epic_norm[config_mask].map(_TEAM_CONFIG_LABELS_NORM)
@@ -323,17 +372,19 @@ def read_input(path: Path) -> tuple[
     # Drop fully-empty rows silently.
     epics_df = epics_df.dropna(how="all").reset_index(drop=True)
 
-    # Rows that have no Epic Description are unusable; log and discard.
+    # Rows with no Epic Description are unusable — log each one and discard.
     no_description = epics_df[COL_EPIC].isna()
-    if no_description.any():
-        count = int(no_description.sum())
+    for idx in epics_df[no_description].index:
+        _log.warning("Discarding row %d: no '%s' value.", idx + 1, COL_EPIC)
+    epics_df = epics_df[~no_description].reset_index(drop=True)
+
+    # Rows with no Estimation default to 0 — log each one and continue.
+    no_estimation = epics_df[COL_ESTIMATION].isna()
+    for _, row in epics_df[no_estimation].iterrows():
         _log.warning(
-            "Discarding %d row(s) with no '%s' value — "
-            "these rows will be ignored.",
-            count,
-            COL_EPIC,
+            "Epic \"%s\": 'Estimation' is empty — defaulting to 0.", row[COL_EPIC]
         )
-        epics_df = epics_df[~no_description].reset_index(drop=True)
+    epics_df[COL_ESTIMATION] = epics_df[COL_ESTIMATION].fillna(0.0)
 
     missing = REQUIRED_INPUT_COLUMNS - set(epics_df.columns)
     if missing:

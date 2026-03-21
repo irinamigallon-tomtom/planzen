@@ -44,6 +44,7 @@ Two output files are always written to `OUTPUT_DIR`. No `OUTPUT_FILE` argument i
 | `-q`, `--quarter` | yes | — | Fiscal quarter (1–4). Determines the 13-week allocation window automatically. |
 | `-o`, `--output-dir` | no | `./output/` | Directory for output files. Created automatically if it does not exist. |
 
+
 ### Fiscal quarters
 
 | Quarter | Start Monday | End Monday | Weeks |
@@ -128,8 +129,10 @@ Cells replaced by formulas in the formulas file:
 |---|---|---|
 | Engineer Net Capacity (each week col) | `=<bruto> - <absence>` | `=F2-F3` |
 | Management Net Capacity (each week col) | `=<mgmt_cap> - <mgmt_absence>` | `=F5-F6` |
-| Total Weeks (each epic row) | `=SUM(<first_week_col>:<last_week_col>)` | `=SUM(F8:R8)` |
-| Weekly Allocation row (each week col) | `=SUM(<first_epic_row>:<last_epic_row>)` | `=SUM(F8:F14)` |
+| Total Weeks (each epic row) | `=SUM(<first_week_col>:<last_week_col>)` | `=SUM(G8:S8)` |
+| Weekly Allocation row (each week col) | `=SUM(<first_epic_row>:<last_epic_row>)` | `=SUM(G8:G14)` |
+| Off Estimate (each epic row) | `=ABS(<total_weeks>-<estimation>)>0.05` | `=ABS(F8-E8)>0.05` |
+| Off Capacity row (each week col) | `=ABS(<weekly_alloc>-<eng_net>)>0.1` | `=ABS(G15-G4)>0.1` |
 
 ### Output structure
 
@@ -153,9 +156,12 @@ Cells replaced by formulas in the formulas file:
 | `Priority` | — | From input |
 | `Estimation` | PW (total) | Total effort budget from input |
 | `Total Weeks` | PW (total) | Sum of all weekly allocations for this quarter |
+| `Off Estimate` | bool | `True` if epic was not fully allocated (`abs(Total Weeks − Estimation) > 0.05`) |
 | `Mon.DD` … | PW/week | Capacity allocated to this epic that week |
 
 **Total row** — `Weekly Allocation`: sum of all epic allocations per week (PW/week).
+
+**Alert row** — `Off Capacity`: per week column, `True` if `abs(Weekly Allocation − Engineer Net Capacity) > 0.1`.
 
 ### Allocation rules
 
@@ -163,6 +169,7 @@ Cells replaced by formulas in the formulas file:
 - **Sequential**: once an epic starts receiving capacity, every subsequent week with available capacity also gets ≥ 0.1 PW — a 0 is only allowed when the week is fully consumed by higher-priority epics
 - Per-epic total ≤ `Estimation`; per-week total ≤ `Engineer Net Capacity`
 - Cell granularity: 0.1 PW increments
+- **Allocation Mode** column (optional per epic): `Sprint` (default when blank), `Uniform`, or `Gaps` — see `LOGIC.md` for details
 - Overflow is expected and visible: if total estimations exceed quarter capacity, lower-priority epics show `Total Weeks < Estimation`
 
 ### Example output (Q2, 5 engineers, 10 absence days, 2 managers — `data/examples/output_example.xlsx`)

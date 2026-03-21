@@ -17,7 +17,7 @@ from pathlib import Path
 
 import typer
 
-from planzen.config import WORKING_DAYS_PER_WEEK
+from planzen.config import COL_ESTIMATION, WORKING_DAYS_PER_WEEK
 from planzen.core_logic import CapacityConfig, build_output_table, get_quarter_dates, _mondays_in_range
 from planzen.excel_io import read_input, validate_input_file, write_output, write_output_with_formulas
 
@@ -55,12 +55,13 @@ def run(
         read_input(input_file)
     )
 
-    n_weeks = len(_mondays_in_range(start_date, end_date))
+    primary_mondays = _mondays_in_range(start_date, end_date)
+    n_primary_weeks = len(primary_mondays)
 
     def _days_to_pw_per_week(days: float | None) -> float | None:
         if days is None:
             return None
-        return days / WORKING_DAYS_PER_WEEK / n_weeks
+        return days / WORKING_DAYS_PER_WEEK / n_primary_weeks
 
     capacity = CapacityConfig(
         num_engineers=num_engineers,
@@ -68,6 +69,16 @@ def run(
         eng_absence_per_week=_days_to_pw_per_week(eng_absence_days),
         mgmt_absence_per_week=_days_to_pw_per_week(mgmt_absence_days),
     )
+
+    total_estimation = round(float(epics_df[COL_ESTIMATION].sum()), 1)
+    quarter_net_capacity = round(capacity.eng_net * n_primary_weeks, 1)
+
+    if total_estimation > quarter_net_capacity + 1e-9:
+        overflow_q = (quarter % 4) + 1
+        typer.echo(
+            f"ℹ  Total estimation ({total_estimation} PW) exceeds Q{quarter} net capacity "
+            f"({quarter_net_capacity} PW). Extending allocation into Q{overflow_q}."
+        )
 
     output_df = build_output_table(epics_df, capacity, start_date, end_date)
 
