@@ -121,16 +121,13 @@ def formulas_path(path: Path) -> Path:
 def _config_label_series(df: pd.DataFrame) -> pd.Series:
     """Return a Series of normalised config labels for each row.
 
-    Uses ``Epic Description`` as the primary source; falls back to
-    ``Budget Bucket`` when ``Epic Description`` is blank, so files that
-    place team config labels in either column are accepted.
+    Config rows are identified exclusively by their ``Budget Bucket`` value.
+    ``Epic Description`` is not used for config row detection.
     """
-    epic_vals = df[COL_EPIC].fillna("").astype(str).str.strip() if COL_EPIC in df.columns else pd.Series("", index=df.index)
     if COL_BUDGET_BUCKET in df.columns:
-        bucket_vals = df[COL_BUDGET_BUCKET].fillna("").astype(str).str.strip()
-        label_vals = epic_vals.where(epic_vals != "", bucket_vals)
+        label_vals = df[COL_BUDGET_BUCKET].fillna("").astype(str).str.strip()
     else:
-        label_vals = epic_vals
+        label_vals = pd.Series("", index=df.index)
     return label_vals.apply(_normalize_config_label)
 
 
@@ -183,12 +180,12 @@ def validate_input_file(path: Path) -> list[str]:
     for label, hint in [
         (
             TEAM_LABEL_ENGINEERS,
-            f'Add a row where "{COL_EPIC}" = "{TEAM_LABEL_ENGINEERS}" '
+            f'Add a row where "{COL_BUDGET_BUCKET}" = "{TEAM_LABEL_ENGINEERS}" '
             'and "Estimation" = the number of full-time engineers (e.g. 5).',
         ),
         (
             TEAM_LABEL_MANAGERS,
-            f'Add a row where "{COL_EPIC}" = "{TEAM_LABEL_MANAGERS}" '
+            f'Add a row where "{COL_BUDGET_BUCKET}" = "{TEAM_LABEL_MANAGERS}" '
             'and "Estimation" = the number of line managers (e.g. 2).',
         ),
     ]:

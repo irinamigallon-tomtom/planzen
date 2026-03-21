@@ -39,4 +39,5 @@ Behavior with Copilot CLI:
     Always update or add tests when changing behavior.
     For bug fixes, first write a test that reproduces the bug, then fix the code.
     Update documentation and any sample data so it is in sync with the code.
+    Commit only when I ask you to, include yourself as co-author, use conventional commits and 15-word max commit messages.
 

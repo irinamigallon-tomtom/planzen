@@ -18,14 +18,14 @@ The user provides a single `.xlsx` file with one sheet. Team config rows appear 
 
 ### Team config rows
 
-The config label may appear in either the `Epic Description` column or the `Budget Bucket` column (useful when `Epic Description` is left blank for config rows). Matching is case-insensitive and strips parenthetical suffixes.
+Config rows are identified by their label in the **`Budget Bucket`** column. The `Estimation` column holds the numeric value. `Epic Description` should be left blank for these rows. Matching is case-insensitive and strips parenthetical suffixes (e.g. `(Bruto)`, `(days)`).
 
-| Config label | `Estimation` value | Unit | Required? |
+| `Budget Bucket` label | `Estimation` value | Unit | Required? |
 |---|---|---|---|
-| `Engineer Bruto Capacity` | e.g. `5.0` | FTE | ✅ |
-| `Manager Bruto Capacity` | e.g. `2.0` | FTE | ✅ |
-| `Engineer Absence (days)` | e.g. `10` | working days (quarter total) | optional |
-| `Manager Absence (days)` | e.g. `4` | working days (quarter total) | optional |
+| `Engineer Capacity (Bruto)` | e.g. `5.0` | FTE | ✅ |
+| `Management Capacity (Bruto)` | e.g. `2.0` | FTE | ✅ |
+| `Engineer Absence` | e.g. `10` | working days (quarter total) | optional |
+| `Management Absence` | e.g. `4` | working days (quarter total) | optional |
 
 When absence is omitted the default formula applies: **37 days/year** (30 vacation + 7 sick) ÷ 52 weeks ÷ 5 days ≈ **0.142 PW/person/week**.
 
@@ -42,7 +42,7 @@ When absence is omitted the default formula applies: **37 days/year** (30 vacati
 | `Type` | optional | — |
 | `Milestone` | optional | — |
 
-Column order does not matter. Any additional columns are preserved. Column names are matched case-insensitively (e.g. `estimation` is accepted).
+Column order does not matter. Column names are matched case-insensitively. Any additional columns are preserved.
 
 ### Row handling
 

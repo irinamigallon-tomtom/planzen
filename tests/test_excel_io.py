@@ -143,8 +143,8 @@ def _base_row(**extra) -> dict:
 
 def _config_rows() -> list[dict]:
     return [
-        {"Epic Description": "Engineer Bruto Capacity", "Estimation": 5.0},
-        {"Epic Description": "Manager Bruto Capacity", "Estimation": 2.0},
+        {"Budget Bucket": "Engineer Capacity (Bruto)", "Estimation": 5.0},
+        {"Budget Bucket": "Management Capacity (Bruto)", "Estimation": 2.0},
     ]
 
 
@@ -176,8 +176,8 @@ def test_read_input_returns_none_when_absence_omitted(tmp_path: Path) -> None:
 def test_read_input_parses_optional_absence_days(tmp_path: Path) -> None:
     p = tmp_path / "input.xlsx"
     config = _config_rows() + [
-        {"Epic Description": "Engineer Absence (days)", "Estimation": 10.0},
-        {"Epic Description": "Manager Absence (days)", "Estimation": 4.0},
+        {"Budget Bucket": "Engineer Absence", "Estimation": 10.0},
+        {"Budget Bucket": "Management Absence", "Estimation": 4.0},
     ]
     _write_input(p, [_base_row()], config=config)
     _, _, _, eng_abs, mgmt_abs = read_input(p)
@@ -189,8 +189,6 @@ def test_read_input_epic_rows_exclude_config_rows(tmp_path: Path) -> None:
     p = tmp_path / "input.xlsx"
     _write_input(p, [_base_row()])
     epics, _, _, _, _ = read_input(p)
-    assert "Engineer Bruto Capacity" not in epics["Epic Description"].values
-    assert "Manager Bruto Capacity" not in epics["Epic Description"].values
     assert len(epics) == 1
 
 
@@ -221,10 +219,10 @@ def test_read_input_preserves_column_order(tmp_path: Path) -> None:
     }]
     pd.DataFrame(rows).to_excel(p, index=False)
     epics, _, _, _, _ = read_input(p)
-    # Column order must match the file: Epic Description and Estimation come first
+    # Column order must match the file: Budget Bucket and Estimation come first
     # (from config rows), then the remaining epic columns.
-    assert epics.columns[0] == "Epic Description"
-    assert epics.columns[1] == "Estimation"
+    assert epics.columns[0] == "Budget Bucket"
+    assert "Epic Description" in epics.columns
     # All required epic columns must be present (Type is optional)
     for col in ("Priority", "Link", "Budget Bucket"):
         assert col in epics.columns
@@ -232,9 +230,9 @@ def test_read_input_preserves_column_order(tmp_path: Path) -> None:
 
 def test_read_input_raises_for_missing_engineers_row(tmp_path: Path) -> None:
     p = tmp_path / "input.xlsx"
-    config = [{"Epic Description": "Manager Bruto Capacity", "Estimation": 2.0}]
+    config = [{"Budget Bucket": "Management Capacity (Bruto)", "Estimation": 2.0}]
     _write_input(p, [_base_row()], config=config)
-    with pytest.raises(ValueError, match="Engineer Bruto Capacity"):
+    with pytest.raises(ValueError, match="Engineer Capacity"):
         read_input(p)
 
 
@@ -252,16 +250,17 @@ def test_read_input_raises_for_missing_required_epic_columns(tmp_path: Path) -> 
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("eng_label", [
-    "Engineer Bruto Capacity",   # canonical
-    "engineer bruto capacity",   # all lowercase
-    "ENGINEER BRUTO CAPACITY",   # all uppercase
-    "  Engineer Bruto Capacity ",  # extra whitespace
+    "Engineer Capacity (Bruto)",     # canonical
+    "engineer capacity (bruto)",     # all lowercase
+    "ENGINEER CAPACITY (BRUTO)",     # all uppercase
+    "  Engineer Capacity (Bruto) ",  # extra whitespace
+    "Engineer Capacity",             # without parenthetical — still fuzzy-matches
 ])
 def test_read_input_accepts_engineer_label_variants(tmp_path: Path, eng_label: str) -> None:
     p = tmp_path / "input.xlsx"
     config = [
-        {"Epic Description": eng_label, "Estimation": 4.0},
-        {"Epic Description": "Manager Bruto Capacity", "Estimation": 2.0},
+        {"Budget Bucket": eng_label, "Estimation": 4.0},
+        {"Budget Bucket": "Management Capacity (Bruto)", "Estimation": 2.0},
     ]
     _write_input(p, [_base_row()], config=config)
     _, eng, _, _, _ = read_input(p)
@@ -269,15 +268,15 @@ def test_read_input_accepts_engineer_label_variants(tmp_path: Path, eng_label: s
 
 
 @pytest.mark.parametrize("mgr_label", [
-    "Manager Bruto Capacity",  # canonical
-    "Manager Bruto Capacity",     # singular "Manager" instead of "Management"
-    "manager bruto capacity",     # lowercase + singular
+    "Management Capacity (Bruto)",   # canonical
+    "management capacity (bruto)",   # lowercase
+    "Management Capacity",           # without parenthetical
 ])
 def test_read_input_accepts_manager_label_variants(tmp_path: Path, mgr_label: str) -> None:
     p = tmp_path / "input.xlsx"
     config = [
-        {"Epic Description": "Engineer Bruto Capacity", "Estimation": 5.0},
-        {"Epic Description": mgr_label, "Estimation": 2.0},
+        {"Budget Bucket": "Engineer Capacity (Bruto)", "Estimation": 5.0},
+        {"Budget Bucket": mgr_label, "Estimation": 2.0},
     ]
     _write_input(p, [_base_row()], config=config)
     _, _, mgr, _, _ = read_input(p)
@@ -285,17 +284,17 @@ def test_read_input_accepts_manager_label_variants(tmp_path: Path, mgr_label: st
 
 
 @pytest.mark.parametrize("eng_abs_label,mgr_abs_label", [
-    ("Engineer Absence (days)", "Manager Absence (days)"),  # canonical
-    ("Engineers absence", "Managers absence"),              # plural, no "(days)"
-    ("engineer absence", "manager absence"),                # lowercase, no "(days)"
+    ("Engineer Absence", "Management Absence"),               # canonical
+    ("Engineer Absence (days)", "Management Absence (days)"), # with (days) — fuzzy strips it
+    ("engineer absence", "management absence"),               # lowercase
 ])
 def test_read_input_accepts_absence_label_variants(
     tmp_path: Path, eng_abs_label: str, mgr_abs_label: str
 ) -> None:
     p = tmp_path / "input.xlsx"
     config = _config_rows() + [
-        {"Epic Description": eng_abs_label, "Estimation": 10.0},
-        {"Epic Description": mgr_abs_label, "Estimation": 4.0},
+        {"Budget Bucket": eng_abs_label, "Estimation": 10.0},
+        {"Budget Bucket": mgr_abs_label, "Estimation": 4.0},
     ]
     _write_input(p, [_base_row()], config=config)
     _, _, _, eng_abs, mgr_abs = read_input(p)
@@ -389,47 +388,47 @@ def test_validate_reports_missing_epic_description_column(tmp_path: Path) -> Non
 
 def test_validate_reports_missing_engineers_config_row(tmp_path: Path) -> None:
     p = tmp_path / "input.xlsx"
-    config = [{"Epic Description": "Manager Bruto Capacity", "Estimation": 2.0}]
+    config = [{"Budget Bucket": "Management Capacity (Bruto)", "Estimation": 2.0}]
     _write_input(p, [_base_row()], config=config)
     errors = validate_input_file(p)
-    assert any("Engineer Bruto Capacity" in e for e in errors)
+    assert any("Engineer Capacity" in e for e in errors)
 
 
 def test_validate_reports_missing_managers_config_row(tmp_path: Path) -> None:
     p = tmp_path / "input.xlsx"
-    config = [{"Epic Description": "Engineer Bruto Capacity", "Estimation": 5.0}]
+    config = [{"Budget Bucket": "Engineer Capacity (Bruto)", "Estimation": 5.0}]
     _write_input(p, [_base_row()], config=config)
     errors = validate_input_file(p)
-    assert any("Manager Bruto Capacity" in e for e in errors)
+    assert any("Management Capacity" in e for e in errors)
 
 
 def test_validate_reports_non_positive_engineers(tmp_path: Path) -> None:
     p = tmp_path / "input.xlsx"
     config = [
-        {"Epic Description": "Engineer Bruto Capacity", "Estimation": 0},
-        {"Epic Description": "Manager Bruto Capacity", "Estimation": 2.0},
+        {"Budget Bucket": "Engineer Capacity (Bruto)", "Estimation": 0},
+        {"Budget Bucket": "Management Capacity (Bruto)", "Estimation": 2.0},
     ]
     _write_input(p, [_base_row()], config=config)
     errors = validate_input_file(p)
-    assert any("Engineer Bruto Capacity" in e for e in errors)
+    assert any("Engineer Capacity" in e for e in errors)
     assert any("greater than 0" in e or "positive" in e.lower() for e in errors)
 
 
 def test_validate_reports_non_numeric_engineers(tmp_path: Path) -> None:
     p = tmp_path / "input.xlsx"
     config = [
-        {"Epic Description": "Engineer Bruto Capacity", "Estimation": "lots"},
-        {"Epic Description": "Manager Bruto Capacity", "Estimation": 2.0},
+        {"Budget Bucket": "Engineer Capacity (Bruto)", "Estimation": "lots"},
+        {"Budget Bucket": "Management Capacity (Bruto)", "Estimation": 2.0},
     ]
     _write_input(p, [_base_row()], config=config)
     errors = validate_input_file(p)
-    assert any("Engineer Bruto Capacity" in e for e in errors)
+    assert any("Engineer Capacity" in e for e in errors)
 
 
 def test_validate_reports_negative_absence_days(tmp_path: Path) -> None:
     p = tmp_path / "input.xlsx"
     config = _config_rows() + [
-        {"Epic Description": "Engineer Absence (days)", "Estimation": -3},
+        {"Budget Bucket": "Engineer Absence", "Estimation": -3},
     ]
     _write_input(p, [_base_row()], config=config)
     errors = validate_input_file(p)

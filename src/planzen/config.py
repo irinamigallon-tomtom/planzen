@@ -31,12 +31,12 @@ VALID_ALLOC_MODES: frozenset[str] = frozenset({
 # Represents at most a tandem of 2 people working full-time.  Configurable here.
 MAX_WEEKLY_ALLOC_PW: float = 2.0
 
-# Team config rows — appear at the top of the epics sheet before the epic data.
-# The Estimation column holds the numeric value for each config row.
-TEAM_LABEL_ENGINEERS      = "Engineer Bruto Capacity"
-TEAM_LABEL_MANAGERS       = "Manager Bruto Capacity"
-TEAM_LABEL_ENG_ABSENCE    = "Engineer Absence (days)"   # optional
-TEAM_LABEL_MGMT_ABSENCE   = "Manager Absence (days)"    # optional
+# Team config rows — identified by their label in the Budget Bucket column.
+# The Estimation column holds the numeric value. Labels match the output row labels.
+TEAM_LABEL_ENGINEERS      = "Engineer Capacity (Bruto)"    # = LABEL_ENG_BRUTO
+TEAM_LABEL_MANAGERS       = "Management Capacity (Bruto)"  # = LABEL_MGMT_CAPACITY
+TEAM_LABEL_ENG_ABSENCE    = "Engineer Absence"             # = LABEL_ENG_ABSENCE; optional
+TEAM_LABEL_MGMT_ABSENCE   = "Management Absence"           # = LABEL_MGMT_ABSENCE; optional
 
 TEAM_CONFIG_LABELS = {
     TEAM_LABEL_ENGINEERS,

@@ -35,8 +35,8 @@ def test_valid_input_has_no_errors() -> None:
 def test_missing_config_rows_reports_both_required_rows() -> None:
     errors = validate_input_file(DATA / "missing_config_rows.xlsx")
     labels = "\n".join(errors)
-    assert "Engineer Bruto Capacity" in labels
-    assert "Manager Bruto Capacity" in labels
+    assert "Engineer Capacity (Bruto)" in labels
+    assert "Management Capacity (Bruto)" in labels
 
 
 def test_invalid_estimations_reports_all_bad_rows() -> None:
@@ -63,8 +63,8 @@ def test_no_epics_reports_missing_epics() -> None:
 def test_bad_config_values_reports_multiple_issues() -> None:
     errors = validate_input_file(DATA / "bad_config_values.xlsx")
     text = "\n".join(errors)
-    assert "Engineer Bruto Capacity" in text   # non-numeric
-    assert "Manager Bruto Capacity" in text  # zero (not positive)
+    assert "Engineer Capacity (Bruto)" in text   # non-numeric
+    assert "Management Capacity (Bruto)" in text  # zero (not positive)
     assert "Absence" in text                   # negative days
     assert len(errors) >= 3
 
@@ -104,8 +104,8 @@ def test_cli_prints_numbered_errors_for_invalid_input(tmp_path: Path) -> None:
     ])
     assert result.exit_code != 0
     assert "1." in result.output
-    assert "Engineer Bruto Capacity" in result.output
-    assert "Manager Bruto Capacity" in result.output
+    assert "Engineer Capacity (Bruto)" in result.output
+    assert "Management Capacity (Bruto)" in result.output
 
 
 def test_cli_writes_no_output_on_invalid_input(tmp_path: Path) -> None:
