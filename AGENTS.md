@@ -4,6 +4,16 @@ Your role:
 Project summary: 
     planzen is a small office automation tool that processes tabular data containing annual plans (based on weekly capacity allocation to different Epics) and exports a review‑friendly Excel file. It is CLI‑first for now, and it works with Excel for human review.
 
+Intended Workflow
+
+ 1. User runs the CLI (uv run planzen ...) pointing at an input Excel file that contains the following columns: Epics, Estimation, Budget Bucket, Priority, Milestone
+ 2. cli.py calls excel_io.py to read the tabular plan data
+ 3. Parsed data flows into core_logic.py for pure transformations
+ 4. The core logic creates a table where the weekly capacities are allocated over a period of time defined by the user, based on the input and the rules explained in LOGIC.md.
+ 4. Results go back through excel_io.py to write the output Excel file
+ 5. User opens the output in Excel for human review
+
+
 Tech stack and commands:
     Use uv for everything: uv add, uv sync, uv run. Never suggest pyenv, pip or poetry.
     Tests via uv run pytest
