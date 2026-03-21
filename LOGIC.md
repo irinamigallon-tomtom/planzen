@@ -15,11 +15,24 @@ The content of each such week-column shall be the capacity allocated in that wee
 Each cell in a column may have a float number allocated to it, in 0.1 increments.
 The total amount of capacity allocated over all weeks to a given Epic cannot exceed its Estimation.
 The total amount of capacity in a given Week (i.e. all capacities allocated in that Week-column over all Rows) cannot exceed the Engineer Net Capacity for that week.
+The user provides the quarter via CLI (e.g. -q 1). See the table below for quarters' running dates.
+The allocation starts on the first week of the selected quarter. Capacities are allocated sequentially, that is, if capacity for one Epic has started in week "04.01", the following weeks must also have some capacity allocated to this epic, until they add up to the Estimation for that Epic.
+
 
 ## Mandatory checks
 
 The total amount of capacity allocated over all weeks to a given Epic cannot exceed its Estimation.
 The total amount of capacity in a given Week (i.e. all capacities allocated in that Week-column over all Rows) cannot exceed the total Engineer Net Capacity for that week.
+No Epic has more than 2PW allocated per week. This makes sense because we want at most a tandem of 2 people working full time on something.
+
+## 2026 Fiscal Quarters
+
+| Quarter | Start Monday   |
+|---------|----------------|
+| Q1      | 2025-12-29     |
+| Q2      | 2026-03-30     |
+| Q3      | 2026-06-29     |
+| Q4      | 2026-09-28     |
 
 ## Capacity calculation
 

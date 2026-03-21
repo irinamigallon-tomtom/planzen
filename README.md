@@ -17,26 +17,33 @@ uv sync
 ## Usage
 
 ```bash
-uv run planzen INPUT_FILE OUTPUT_FILE --start YYYY-MM-DD --end YYYY-MM-DD [OPTIONS]
+uv run planzen INPUT_FILE OUTPUT_FILE -q QUARTER [OPTIONS]
 ```
 
 ### Options
 
 | Option | Default | Description |
 |---|---|---|
-| `--start` | *(required)* | First day of the planning period (any weekday; the tool finds the first Monday on or after this date) |
-| `--end` | *(required)* | Last day of the planning period (inclusive) |
-| `--num-engineers` | *(required)* | Number of engineers (E); bruto = E PW/week, absence = E/12 PW/week |
-| `--num-managers` | *(required)* | Number of line managers (M); capacity = M PW/week, absence = M/12 PW/week |
+| `-q`, `--quarter` | *(required)* | Fiscal quarter to plan (1–4). Sets the 13-week date range automatically. |
+| `--num-engineers` | *(required)* | Number of engineers (E); bruto = E PW/week |
+| `--num-managers` | *(required)* | Number of line managers (M); capacity = M PW/week |
 
 All capacity values are in **Person-Weeks (PW)**. Each person contributes 1 PW/week of bruto capacity. Absence is **37 days/year (30 vacation + 7 sick) = 0.71 days/week per person = ≈ 0.142 PW/person/week** (÷ 5 working days/week). Net capacity = bruto − absence.
+
+### Fiscal quarters
+
+| Quarter | Start Monday | End Monday |
+|---|---|---|
+| Q1 | 2025-12-29 | 2026-03-23 |
+| Q2 | 2026-03-30 | 2026-06-22 |
+| Q3 | 2026-06-29 | 2026-09-21 |
+| Q4 | 2026-09-28 | 2026-12-21 |
 
 ### Example
 
 ```bash
 uv run planzen data/examples/input_example.xlsx data/examples/output_example.xlsx \
-  --start 2026-01-05 \
-  --end 2026-12-28 \
+  -q 2 \
   --num-engineers 5 \
   --num-managers 2
 ```
@@ -86,16 +93,16 @@ The output is an Excel file (`.xlsx`) with a single sheet named **Allocation**.
 | Management Absence | `M × 0.142 PW` |
 | Management Net Capacity | Management Capacity − Absence |
 
-**Epic rows** (one per Epic from the input):
+**Epic rows** (one per Epic from the input, sorted by Priority ascending):
 
 | Column | Description |
 |---|---|
 | `Budget Bucket` | From input |
 | `Epic / Capacity Metric` | Epic name from input |
-| `Priority` | From input |
+| `Priority` | From input (rows sorted lowest → highest priority number) |
 | `Estimation` | Total capacity budget from input |
 | `Total Weeks` | Sum of all weekly allocations for this Epic |
-| `M.DD` … | One column per Monday in the planning period; value = capacity allocated that week |
+| `M.DD` … | One column per Monday in the quarter; value = capacity allocated that week |
 
 **Total row** (last row):
 
@@ -103,13 +110,16 @@ Labelled `Total / Weekly Allocation` — shows the sum of all Epic allocations f
 
 ### Allocation constraints
 
+- Epics are sorted by Priority (ascending = highest priority first); higher-priority epics claim capacity before lower ones
+- Allocation is **sequential**: once an epic starts in a week, all following weeks with available capacity also receive allocation (≥ 0.1 PW). A week gets 0 only when capacity is fully consumed by higher-priority epics
 - Per-Epic: sum of all week columns ≤ `Estimation`
 - Per-week: sum across all Epic rows ≤ `Engineer Net Capacity` for that week
-- Cell values are floats rounded to 0.1 increments
+- Cell values are floats rounded to 0.1 PW increments
+- If total estimations exceed quarter capacity, lower-priority epics overflow (Total Weeks < Estimation)
 
 ### Example output (truncated — `data/examples/output_example.xlsx`)
 
-| Budget Bucket | Epic / Capacity Metric | Priority | Estimation | Total Weeks | 1.05 | 1.12 | … | 12.28 |
+| Budget Bucket | Epic / Capacity Metric | Priority | Estimation | Total Weeks | 12.29 | 1.05 | … | 6.22 |
 |---|---|---|---|---|---|---|---|---|
 | | Engineer Capacity (Bruto) | | | | 5.0 | 5.0 | … | 5.0 |
 | | Engineer Absence | | | | 0.7 | 0.7 | … | 0.7 |
@@ -117,14 +127,14 @@ Labelled `Total / Weekly Allocation` — shows the sum of all Epic allocations f
 | | Management Capacity | | | | 2.0 | 2.0 | … | 2.0 |
 | | Management Absence | | | | 0.3 | 0.3 | … | 0.3 |
 | | Management Net Capacity | | | | 1.7 | 1.7 | … | 1.7 |
-| Platform | Auth & Identity Management | 0 | 80.0 | 78.0 | 1.5 | 1.5 | … | 1.5 |
-| Analytics | Real-time Analytics | 0 | 120.0 | 119.6 | 2.3 | 2.3 | … | 2.3 |
-| Product | Mobile App Redesign | 1 | 100.0 | 98.8 | 1.9 | 1.9 | … | 1.9 |
-| Platform | API Gateway Optimization | 1 | 60.0 | 59.8 | 1.1 | 1.1 | … | 1.1 |
-| Analytics | Data Quality Framework | 2 | 90.0 | 89.7 | 1.7 | 1.7 | … | 1.7 |
-| Total | Weekly Allocation | | | | 8.5 | 8.5 | … | 8.5 |
+| Platform | Auth & Identity Management | 0 | 80.0 | 55.9 | 4.3 | 4.3 | … | 4.3 |
+| Analytics | Real-time Analytics | 0 | 120.0 | 0.0 | 0.0 | 0.0 | … | 0.0 |
+| Product | Mobile App Redesign | 1 | 100.0 | 0.0 | 0.0 | 0.0 | … | 0.0 |
+| Platform | API Gateway Optimization | 1 | 60.0 | 0.0 | 0.0 | 0.0 | … | 0.0 |
+| Analytics | Data Quality Framework | 2 | 90.0 | 0.0 | 0.0 | 0.0 | … | 0.0 |
+| Total | Weekly Allocation | | | | 4.3 | 4.3 | … | 4.3 |
 
-Week column headers use the format `M.DD` (e.g. `1.05` = January 5, `12.28` = December 28). The full example output for a full 2026 year has **52 week columns**.
+Week column headers use the format `M.DD` (e.g. `1.05` = January 5, `6.22` = June 22). Each quarter has **13 week columns**.
 
 ---
 
