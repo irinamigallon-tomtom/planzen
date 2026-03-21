@@ -578,6 +578,12 @@ def write_output_with_formulas(df: pd.DataFrame, path: Path) -> None:
             f"=SUM({first_week_letter}{er}:{last_week_letter}{er})"
         )
 
+    # Total Weeks for capacity header rows: same SUM formula
+    for r_cap in (r_eng_bruto, r_eng_absence, r_eng_net, r_mgmt_cap, r_mgmt_absence, r_mgmt_net):
+        ws.cell(r_cap, total_weeks_col_idx).value = (
+            f"=SUM({first_week_letter}{r_cap}:{last_week_letter}{r_cap})"
+        )
+
     # Weekly Allocation row: =SUM(<col><first_epic>:<col><last_epic>)
     for ci in week_col_indices:
         cl = get_column_letter(ci)

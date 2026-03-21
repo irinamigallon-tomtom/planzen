@@ -282,7 +282,9 @@ def _build_capacity_rows(
             OUT_COL_TOTAL_WEEKS: "",
             OUT_COL_OFF_ESTIMATE: "",
         }
-        base.update({w: value_fn(m) for w, m in zip(week_labels, mondays)})
+        week_values = {w: value_fn(m) for w, m in zip(week_labels, mondays)}
+        base.update(week_values)
+        base[OUT_COL_TOTAL_WEEKS] = round(sum(week_values.values()), 1)
         return base
 
     return [
