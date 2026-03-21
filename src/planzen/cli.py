@@ -12,7 +12,7 @@ from pathlib import Path
 import typer
 
 from planzen.core_logic import CapacityConfig, build_output_table, get_quarter_dates
-from planzen.excel_io import read_plan, write_output
+from planzen.excel_io import formulas_path, read_plan, write_output, write_output_with_formulas
 
 app = typer.Typer(help="planzen — weekly capacity allocation tool.")
 
@@ -38,7 +38,10 @@ def run(
     )
     output_df = build_output_table(epics_df, capacity, start_date, end_date)
     write_output(output_df, output_file)
-    typer.echo(f"Output written to {output_file}")
+    formulas_file = formulas_path(output_file)
+    write_output_with_formulas(output_df, formulas_file)
+    typer.echo(f"Values output written to  {output_file}")
+    typer.echo(f"Formulas output written to {formulas_file}")
 
 
 def main() -> None:

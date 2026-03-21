@@ -170,7 +170,7 @@ def build_output_table(
     DataFrame matching the structure described in LOGIC.md.
     """
     mondays = _mondays_in_range(start, end)
-    week_labels = [d.strftime("%-m.%d").lstrip("0") or "0" for d in mondays]
+    week_labels = [d.strftime("%b.%d") for d in mondays]
 
     # --- capacity header rows ---
     capacity_rows = _build_capacity_rows(capacity, week_labels)

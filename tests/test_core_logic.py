@@ -109,7 +109,7 @@ def test_output_has_correct_number_of_rows() -> None:
 def test_week_columns_are_present() -> None:
     df = _build()
     # Q1 starts 2025-12-29; 4 Mondays: Dec 29, Jan 5, Jan 12, Jan 19
-    for label in ["12.29", "1.05", "1.12", "1.19"]:
+    for label in ["Dec.29", "Jan.05", "Jan.12", "Jan.19"]:
         assert label in df.columns, f"Missing week column: {label}"
 
 

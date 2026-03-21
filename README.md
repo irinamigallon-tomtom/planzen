@@ -78,7 +78,21 @@ Additional columns in the file are ignored.
 
 ## Output format
 
-The output is an Excel file (`.xlsx`) with a single sheet named **Allocation**.
+The tool produces **two output files** from a single run:
+
+| File | Contents |
+|---|---|
+| `OUTPUT_FILE` | All cells contain numeric values |
+| `OUTPUT_FILE` (stem `_formulas`) | Calculated cells contain Excel formulas |
+
+Cells that become formulas in the formulas file:
+
+| Cell / range | Formula type | Example |
+|---|---|---|
+| Engineer Net Capacity (each week) | `=<bruto>-<absence>` | `=F2-F3` |
+| Management Net Capacity (each week) | `=<mgmt_cap>-<mgmt_absence>` | `=F5-F6` |
+| Total Weeks (each Epic row) | `=SUM(<first_week>:<last_week>)` | `=SUM(F8:R8)` |
+| Weekly Allocation (each week) | `=SUM(<first_epic>:<last_epic>)` | `=SUM(F8:F14)` |
 
 ### Structure
 
@@ -119,7 +133,7 @@ Labelled `Total / Weekly Allocation` — shows the sum of all Epic allocations f
 
 ### Example output (truncated — `data/examples/output_example.xlsx`)
 
-| Budget Bucket | Epic / Capacity Metric | Priority | Estimation | Total Weeks | 12.29 | 1.05 | … | 6.22 |
+| Budget Bucket | Epic / Capacity Metric | Priority | Estimation | Total Weeks | Dec.29 | Jan.05 | … | Jun.22 |
 |---|---|---|---|---|---|---|---|---|
 | | Engineer Capacity (Bruto) | | | | 5.0 | 5.0 | … | 5.0 |
 | | Engineer Absence | | | | 0.7 | 0.7 | … | 0.7 |
@@ -134,7 +148,7 @@ Labelled `Total / Weekly Allocation` — shows the sum of all Epic allocations f
 | Analytics | Data Quality Framework | 2 | 90.0 | 0.0 | 0.0 | 0.0 | … | 0.0 |
 | Total | Weekly Allocation | | | | 4.3 | 4.3 | … | 4.3 |
 
-Week column headers use the format `M.DD` (e.g. `1.05` = January 5, `6.22` = June 22). Each quarter has **13 week columns**.
+Week column headers use the format `Mon.DD` (e.g. `Jan.05` = January 5, `Jun.22` = June 22). Each quarter has **13 week columns**.
 
 ---
 

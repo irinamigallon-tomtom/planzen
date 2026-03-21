@@ -1,0 +1,363 @@
+"""
+Tests for excel_io.py — values output and formula output.
+
+Includes parametrized tests that vary the number of epics to ensure
+formula row/column references are dynamically correct regardless of
+sheet shape.
+"""
+
+from __future__ import annotations
+
+from datetime import timedelta
+from pathlib import Path
+
+import openpyxl
+import pandas as pd
+import pytest
+from openpyxl.utils import get_column_letter
+
+from planzen.config import (
+    FISCAL_QUARTERS,
+    LABEL_ENG_ABSENCE,
+    LABEL_ENG_BRUTO,
+    LABEL_ENG_NET,
+    LABEL_MGMT_ABSENCE,
+    LABEL_MGMT_CAPACITY,
+    LABEL_MGMT_NET,
+    LABEL_TOTAL_ROW,
+    OUT_COL_EPIC,
+    OUT_COL_TOTAL_WEEKS,
+)
+from planzen.core_logic import CapacityConfig, build_output_table
+from planzen.excel_io import formulas_path, write_output, write_output_with_formulas
+
+# ---------------------------------------------------------------------------
+# Shared fixtures and helpers
+# ---------------------------------------------------------------------------
+
+_CAPACITY = CapacityConfig(num_engineers=5, num_managers=2)
+_Q1_START = FISCAL_QUARTERS[1][0]
+_START = _Q1_START
+_END = _Q1_START + timedelta(weeks=3)  # 4 Mondays
+
+_EPICS = pd.DataFrame([
+    {"Epics": "Epic A", "Estimation": 10.0, "Budget Bucket": "Core", "Priority": 0, "Milestone": "Q1"},
+    {"Epics": "Epic B", "Estimation": 5.0,  "Budget Bucket": "Core", "Priority": 1, "Milestone": "Q1"},
+])
+
+_CAPACITY_LABELS = {
+    LABEL_ENG_BRUTO, LABEL_ENG_ABSENCE, LABEL_ENG_NET,
+    LABEL_MGMT_CAPACITY, LABEL_MGMT_ABSENCE, LABEL_MGMT_NET,
+    LABEL_TOTAL_ROW,
+}
+
+
+def _make_epics(n: int) -> pd.DataFrame:
+    """Build a DataFrame with *n* epics of varying estimations."""
+    return pd.DataFrame([
+        {
+            "Epics": f"Epic {i}",
+            "Estimation": float(10 * (i + 1)),
+            "Budget Bucket": "Core",
+            "Priority": i,
+            "Milestone": "Q1",
+        }
+        for i in range(n)
+    ])
+
+
+@pytest.fixture()
+def output_df() -> pd.DataFrame:
+    return build_output_table(_EPICS, _CAPACITY, _START, _END)
+
+
+@pytest.fixture()
+def values_file(tmp_path: Path, output_df: pd.DataFrame) -> Path:
+    p = tmp_path / "output.xlsx"
+    write_output(output_df, p)
+    return p
+
+
+@pytest.fixture()
+def formulas_file(tmp_path: Path, output_df: pd.DataFrame) -> Path:
+    p = tmp_path / "output_formulas.xlsx"
+    write_output_with_formulas(output_df, p)
+    return p
+
+
+def _find_row(ws, label: str, label_col: int = 2) -> int:
+    """Return the 1-based Excel row number whose label_col cell equals *label*."""
+    for row in ws.iter_rows():
+        if row[label_col - 1].value == label:
+            return row[0].row
+    raise KeyError(f"Label {label!r} not found in worksheet")
+
+
+def _week_cols(ws, header_row: int = 1) -> list[int]:
+    """Return 1-based column indices for all week columns (non-metadata columns)."""
+    non_week = {"Budget Bucket", "Epic / Capacity Metric", "Priority", "Estimation", "Total Weeks"}
+    return [
+        cell.column for cell in ws[header_row]
+        if cell.value not in non_week and cell.value is not None
+    ]
+
+
+def _total_weeks_col(ws, header_row: int = 1) -> int:
+    for cell in ws[header_row]:
+        if cell.value == "Total Weeks":
+            return cell.column
+    raise KeyError("Total Weeks column not found")
+
+
+# ---------------------------------------------------------------------------
+# formulas_path helper
+# ---------------------------------------------------------------------------
+
+def test_formulas_path_appends_suffix() -> None:
+    assert formulas_path(Path("out/result.xlsx")) == Path("out/result_formulas.xlsx")
+
+
+def test_formulas_path_preserves_directory() -> None:
+    p = formulas_path(Path("/data/examples/output_example.xlsx"))
+    assert p == Path("/data/examples/output_example_formulas.xlsx")
+
+
+# ---------------------------------------------------------------------------
+# Values file: no formula strings
+# ---------------------------------------------------------------------------
+
+def test_values_file_is_created(values_file: Path) -> None:
+    assert values_file.exists()
+
+
+def test_values_file_net_capacity_cells_are_numeric(values_file: Path) -> None:
+    wb = openpyxl.load_workbook(values_file, data_only=True)
+    ws = wb.active
+    eng_net_row = _find_row(ws, LABEL_ENG_NET)
+    mgmt_net_row = _find_row(ws, LABEL_MGMT_NET)
+    for col_idx in _week_cols(ws):
+        assert isinstance(ws.cell(eng_net_row, col_idx).value, (int, float)), (
+            f"Eng Net cell ({eng_net_row},{col_idx}) should be numeric in values file"
+        )
+        assert isinstance(ws.cell(mgmt_net_row, col_idx).value, (int, float)), (
+            f"Mgmt Net cell ({mgmt_net_row},{col_idx}) should be numeric in values file"
+        )
+
+
+def test_values_file_total_weeks_is_numeric(values_file: Path, output_df: pd.DataFrame) -> None:
+    wb = openpyxl.load_workbook(values_file, data_only=True)
+    ws = wb.active
+    tw_col = _total_weeks_col(ws)
+    for row in ws.iter_rows(min_row=2):
+        label = row[1].value  # column B
+        if label not in _CAPACITY_LABELS and label is not None:
+            cell_val = ws.cell(row[0].row, tw_col).value
+            assert isinstance(cell_val, (int, float)), (
+                f"Total Weeks for '{label}' should be numeric in values file, got {cell_val!r}"
+            )
+
+
+def test_values_file_weekly_allocation_is_numeric(values_file: Path) -> None:
+    wb = openpyxl.load_workbook(values_file, data_only=True)
+    ws = wb.active
+    total_row = _find_row(ws, LABEL_TOTAL_ROW)
+    for col_idx in _week_cols(ws):
+        val = ws.cell(total_row, col_idx).value
+        assert isinstance(val, (int, float)), (
+            f"Weekly Allocation cell ({total_row},{col_idx}) should be numeric, got {val!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Formula file: specific cells contain Excel formulas
+# ---------------------------------------------------------------------------
+
+def test_formulas_file_is_created(formulas_file: Path) -> None:
+    assert formulas_file.exists()
+
+
+def test_formulas_file_eng_net_has_subtraction_formula(formulas_file: Path) -> None:
+    wb = openpyxl.load_workbook(formulas_file, data_only=False)
+    ws = wb.active
+    eng_net_row = _find_row(ws, LABEL_ENG_NET)
+    for col_idx in _week_cols(ws):
+        val = ws.cell(eng_net_row, col_idx).value
+        assert isinstance(val, str) and val.startswith("="), (
+            f"Eng Net cell ({eng_net_row},{col_idx}) should be a formula, got {val!r}"
+        )
+        assert "-" in val, f"Eng Net formula should subtract absence: {val!r}"
+
+
+def test_formulas_file_mgmt_net_has_subtraction_formula(formulas_file: Path) -> None:
+    wb = openpyxl.load_workbook(formulas_file, data_only=False)
+    ws = wb.active
+    mgmt_net_row = _find_row(ws, LABEL_MGMT_NET)
+    for col_idx in _week_cols(ws):
+        val = ws.cell(mgmt_net_row, col_idx).value
+        assert isinstance(val, str) and val.startswith("="), (
+            f"Mgmt Net cell ({mgmt_net_row},{col_idx}) should be a formula, got {val!r}"
+        )
+        assert "-" in val, f"Mgmt Net formula should subtract absence: {val!r}"
+
+
+def test_formulas_file_total_weeks_is_sum_formula(formulas_file: Path) -> None:
+    wb = openpyxl.load_workbook(formulas_file, data_only=False)
+    ws = wb.active
+    tw_col = _total_weeks_col(ws)
+    for row in ws.iter_rows(min_row=2):
+        label = row[1].value
+        if label not in _CAPACITY_LABELS and label is not None:
+            val = ws.cell(row[0].row, tw_col).value
+            assert isinstance(val, str) and val.upper().startswith("=SUM("), (
+                f"Total Weeks for '{label}' should be =SUM(...), got {val!r}"
+            )
+
+
+def test_formulas_file_weekly_allocation_is_sum_formula(formulas_file: Path) -> None:
+    wb = openpyxl.load_workbook(formulas_file, data_only=False)
+    ws = wb.active
+    total_row = _find_row(ws, LABEL_TOTAL_ROW)
+    for col_idx in _week_cols(ws):
+        val = ws.cell(total_row, col_idx).value
+        assert isinstance(val, str) and val.upper().startswith("=SUM("), (
+            f"Weekly Allocation cell ({total_row},{col_idx}) should be =SUM(...), got {val!r}"
+        )
+
+
+def test_formulas_eng_net_references_correct_rows(formulas_file: Path) -> None:
+    """Spot-check: Eng Net formula references Eng Bruto and Eng Absence rows."""
+    wb = openpyxl.load_workbook(formulas_file, data_only=False)
+    ws = wb.active
+    r_bruto = _find_row(ws, LABEL_ENG_BRUTO)
+    r_absence = _find_row(ws, LABEL_ENG_ABSENCE)
+    r_net = _find_row(ws, LABEL_ENG_NET)
+    week_cols = _week_cols(ws)
+    # Check first week column
+    col_idx = week_cols[0]
+    formula = ws.cell(r_net, col_idx).value
+    assert str(r_bruto) in formula, f"Formula {formula!r} should reference bruto row {r_bruto}"
+    assert str(r_absence) in formula, f"Formula {formula!r} should reference absence row {r_absence}"
+
+
+def test_formulas_total_weeks_spans_all_week_columns(formulas_file: Path) -> None:
+    """Total Weeks SUM range must start at the first week col and end at the last."""
+    wb = openpyxl.load_workbook(formulas_file, data_only=False)
+    ws = wb.active
+    tw_col = _total_weeks_col(ws)
+    week_col_indices = _week_cols(ws)
+    first_letter = get_column_letter(week_col_indices[0])
+    last_letter = get_column_letter(week_col_indices[-1])
+    # Check first epic row
+    for row in ws.iter_rows(min_row=2):
+        label = row[1].value
+        if label not in _CAPACITY_LABELS and label is not None:
+            r = row[0].row
+            formula = ws.cell(r, tw_col).value
+            assert first_letter in formula, f"SUM should start at {first_letter}: {formula!r}"
+            assert last_letter in formula, f"SUM should end at {last_letter}: {formula!r}"
+            break
+
+
+# ---------------------------------------------------------------------------
+# Parametrized tests: formula positions are correct for 1, 3, and 5 epics
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("n_epics", [1, 3, 5])
+def test_weekly_allocation_sum_spans_exact_epic_rows(n_epics: int, tmp_path: Path) -> None:
+    """
+    The Weekly Allocation SUM formula must reference exactly the epic rows —
+    from the row after the last capacity header to the row before the total row.
+    This is verified for 1, 3, and 5 epics so that changes in sheet height are caught.
+    """
+    df = build_output_table(_make_epics(n_epics), _CAPACITY, _START, _END)
+    p = tmp_path / f"out_{n_epics}.xlsx"
+    write_output_with_formulas(df, p)
+
+    wb = openpyxl.load_workbook(p, data_only=False)
+    ws = wb.active
+
+    # Identify expected epic rows from the sheet directly
+    epic_rows_in_sheet = [
+        row[0].row
+        for row in ws.iter_rows(min_row=2)
+        if row[1].value not in _CAPACITY_LABELS and row[1].value is not None
+    ]
+    assert len(epic_rows_in_sheet) == n_epics, (
+        f"Expected {n_epics} epic rows, found {len(epic_rows_in_sheet)}"
+    )
+
+    expected_first = epic_rows_in_sheet[0]
+    expected_last  = epic_rows_in_sheet[-1]
+    total_row_num  = _find_row(ws, LABEL_TOTAL_ROW)
+
+    for col_idx in _week_cols(ws):
+        cl = get_column_letter(col_idx)
+        formula = ws.cell(total_row_num, col_idx).value
+        expected = f"=SUM({cl}{expected_first}:{cl}{expected_last})"
+        assert formula == expected, (
+            f"n_epics={n_epics}: Weekly Allocation formula for col {cl} "
+            f"expected {expected!r}, got {formula!r}"
+        )
+
+
+@pytest.mark.parametrize("n_epics", [1, 3, 5])
+def test_total_weeks_sum_references_own_row(n_epics: int, tmp_path: Path) -> None:
+    """
+    The Total Weeks formula for each epic must reference that epic's own row number
+    (not a hardcoded constant), across sheet shapes with 1, 3, and 5 epics.
+    """
+    df = build_output_table(_make_epics(n_epics), _CAPACITY, _START, _END)
+    p = tmp_path / f"out_{n_epics}.xlsx"
+    write_output_with_formulas(df, p)
+
+    wb = openpyxl.load_workbook(p, data_only=False)
+    ws = wb.active
+
+    tw_col = _total_weeks_col(ws)
+    week_col_indices = _week_cols(ws)
+    first_letter = get_column_letter(week_col_indices[0])
+    last_letter  = get_column_letter(week_col_indices[-1])
+
+    for row in ws.iter_rows(min_row=2):
+        label = row[1].value
+        if label in _CAPACITY_LABELS or label is None:
+            continue
+        r = row[0].row
+        formula = ws.cell(r, tw_col).value
+        expected = f"=SUM({first_letter}{r}:{last_letter}{r})"
+        assert formula == expected, (
+            f"n_epics={n_epics}, epic row {r}: "
+            f"Total Weeks expected {expected!r}, got {formula!r}"
+        )
+
+
+@pytest.mark.parametrize("n_epics", [1, 3, 5])
+def test_net_capacity_formulas_reference_fixed_header_rows(n_epics: int, tmp_path: Path) -> None:
+    """
+    Eng Net and Mgmt Net formulas must reference the bruto/absence rows, which
+    are always at fixed positions (rows 2-7) regardless of how many epics follow.
+    """
+    df = build_output_table(_make_epics(n_epics), _CAPACITY, _START, _END)
+    p = tmp_path / f"out_{n_epics}.xlsx"
+    write_output_with_formulas(df, p)
+
+    wb = openpyxl.load_workbook(p, data_only=False)
+    ws = wb.active
+
+    r_bruto        = _find_row(ws, LABEL_ENG_BRUTO)
+    r_eng_absence  = _find_row(ws, LABEL_ENG_ABSENCE)
+    r_eng_net      = _find_row(ws, LABEL_ENG_NET)
+    r_mgmt_cap     = _find_row(ws, LABEL_MGMT_CAPACITY)
+    r_mgmt_absence = _find_row(ws, LABEL_MGMT_ABSENCE)
+    r_mgmt_net     = _find_row(ws, LABEL_MGMT_NET)
+
+    for col_idx in _week_cols(ws):
+        cl = get_column_letter(col_idx)
+        eng_formula  = ws.cell(r_eng_net,  col_idx).value
+        mgmt_formula = ws.cell(r_mgmt_net, col_idx).value
+        assert eng_formula == f"={cl}{r_bruto}-{cl}{r_eng_absence}", (
+            f"n_epics={n_epics}: Eng Net formula wrong: {eng_formula!r}"
+        )
+        assert mgmt_formula == f"={cl}{r_mgmt_cap}-{cl}{r_mgmt_absence}", (
+            f"n_epics={n_epics}: Mgmt Net formula wrong: {mgmt_formula!r}"
+        )
