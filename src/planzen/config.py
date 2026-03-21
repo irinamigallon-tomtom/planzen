@@ -5,10 +5,15 @@ Configuration constants for planzen.
 from datetime import date, timedelta
 
 # Input column names expected in the source Excel file
-COL_EPIC = "Epics"
+# Required columns
+COL_EPIC = "Epic Description"
 COL_ESTIMATION = "Estimation"
 COL_BUDGET_BUCKET = "Budget Bucket"
+COL_TYPE = "Type"
+COL_LINK = "Link"
 COL_PRIORITY = "Priority"
+
+# Optional input columns (used when present)
 COL_MILESTONE = "Milestone"
 
 # Output table column labels

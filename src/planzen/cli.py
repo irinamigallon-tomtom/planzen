@@ -22,8 +22,8 @@ def run(
     input_file: Path = typer.Argument(..., help="Path to the input Excel plan file."),
     output_file: Path = typer.Argument(..., help="Path for the output Excel file."),
     quarter: int = typer.Option(..., "-q", "--quarter", help="Fiscal quarter (1–4)."),
-    num_engineers: int = typer.Option(..., help="Number of engineers on the team."),
-    num_managers: int = typer.Option(..., help="Number of line managers."),
+    num_engineers: float = typer.Option(..., help="Number of engineers (supports fractions, e.g. 2.5)."),
+    num_managers: float = typer.Option(..., help="Number of line managers (supports fractions, e.g. 0.5)."),
 ) -> None:
     """Process an input plan and write the allocation table to OUTPUT_FILE."""
     try:

@@ -41,8 +41,10 @@ _START = _Q1_START
 _END = _Q1_START + timedelta(weeks=3)  # 4 Mondays
 
 _EPICS = pd.DataFrame([
-    {"Epics": "Epic A", "Estimation": 10.0, "Budget Bucket": "Core", "Priority": 0, "Milestone": "Q1"},
-    {"Epics": "Epic B", "Estimation": 5.0,  "Budget Bucket": "Core", "Priority": 1, "Milestone": "Q1"},
+    {"Epic Description": "Epic A", "Estimation": 10.0, "Budget Bucket": "Core",
+     "Type": "Feature", "Link": "https://jira.example.com/A", "Priority": 0, "Milestone": "Q1"},
+    {"Epic Description": "Epic B", "Estimation": 5.0,  "Budget Bucket": "Core",
+     "Type": "Feature", "Link": "https://jira.example.com/B", "Priority": 1, "Milestone": "Q1"},
 ])
 
 _CAPACITY_LABELS = {
@@ -56,9 +58,11 @@ def _make_epics(n: int) -> pd.DataFrame:
     """Build a DataFrame with *n* epics of varying estimations."""
     return pd.DataFrame([
         {
-            "Epics": f"Epic {i}",
+            "Epic Description": f"Epic {i}",
             "Estimation": float(10 * (i + 1)),
             "Budget Bucket": "Core",
+            "Type": "Feature",
+            "Link": f"https://jira.example.com/{i}",
             "Priority": i,
             "Milestone": "Q1",
         }
@@ -120,6 +124,75 @@ def test_formulas_path_appends_suffix() -> None:
 def test_formulas_path_preserves_directory() -> None:
     p = formulas_path(Path("/data/examples/output_example.xlsx"))
     assert p == Path("/data/examples/output_example_formulas.xlsx")
+
+
+# ---------------------------------------------------------------------------
+# read_plan: column validation and flexibility
+# ---------------------------------------------------------------------------
+
+def test_read_plan_accepts_required_columns(tmp_path: Path) -> None:
+    """A file with exactly the required columns is accepted."""
+    import openpyxl as xl
+    from planzen.excel_io import read_plan
+    p = tmp_path / "input.xlsx"
+    df = pd.DataFrame([{
+        "Epic Description": "E", "Estimation": 1.0, "Budget Bucket": "B",
+        "Type": "Feature", "Link": "http://x", "Priority": 0,
+    }])
+    df.to_excel(p, index=False)
+    result = read_plan(p)
+    assert "Epic Description" in result.columns
+
+
+def test_read_plan_accepts_extra_columns(tmp_path: Path) -> None:
+    """Extra/unexpected columns in the file must be preserved without error."""
+    from planzen.excel_io import read_plan
+    p = tmp_path / "input.xlsx"
+    df = pd.DataFrame([{
+        "Epic Description": "E", "Estimation": 1.0, "Budget Bucket": "B",
+        "Type": "Feature", "Link": "http://x", "Priority": 0,
+        "Extra Column": "ignored", "Another Unexpected": 42,
+    }])
+    df.to_excel(p, index=False)
+    result = read_plan(p)
+    assert "Extra Column" in result.columns
+    assert "Another Unexpected" in result.columns
+
+
+def test_read_plan_accepts_optional_milestone(tmp_path: Path) -> None:
+    """Milestone is optional — its presence or absence must not raise."""
+    from planzen.excel_io import read_plan
+    p_with = tmp_path / "with_milestone.xlsx"
+    p_without = tmp_path / "without_milestone.xlsx"
+    base = {"Epic Description": "E", "Estimation": 1.0, "Budget Bucket": "B",
+            "Type": "Feature", "Link": "http://x", "Priority": 0}
+    pd.DataFrame([{**base, "Milestone": "Q1"}]).to_excel(p_with, index=False)
+    pd.DataFrame([base]).to_excel(p_without, index=False)
+    read_plan(p_with)    # must not raise
+    read_plan(p_without)  # must not raise
+
+
+def test_read_plan_preserves_column_order(tmp_path: Path) -> None:
+    """Columns must be returned in the order they appear in the file."""
+    from planzen.excel_io import read_plan
+    p = tmp_path / "input.xlsx"
+    # Deliberately scrambled order
+    df = pd.DataFrame([{
+        "Priority": 0, "Link": "http://x", "Estimation": 1.0,
+        "Type": "Feature", "Budget Bucket": "B", "Epic Description": "E",
+    }])
+    df.to_excel(p, index=False)
+    result = read_plan(p)
+    assert list(result.columns) == ["Priority", "Link", "Estimation", "Type", "Budget Bucket", "Epic Description"]
+
+
+def test_read_plan_raises_for_missing_required(tmp_path: Path) -> None:
+    """Missing required columns must raise ValueError naming the absent columns."""
+    from planzen.excel_io import read_plan
+    p = tmp_path / "bad.xlsx"
+    pd.DataFrame([{"Epic Description": "E", "Estimation": 1.0}]).to_excel(p, index=False)
+    with pytest.raises(ValueError, match="missing required columns"):
+        read_plan(p)
 
 
 # ---------------------------------------------------------------------------

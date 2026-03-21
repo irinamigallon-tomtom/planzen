@@ -17,8 +17,9 @@ from planzen.config import (
     COL_BUDGET_BUCKET,
     COL_EPIC,
     COL_ESTIMATION,
-    COL_MILESTONE,
+    COL_LINK,
     COL_PRIORITY,
+    COL_TYPE,
     LABEL_ENG_ABSENCE,
     LABEL_ENG_BRUTO,
     LABEL_ENG_NET,
@@ -37,8 +38,9 @@ REQUIRED_INPUT_COLUMNS = {
     COL_EPIC,
     COL_ESTIMATION,
     COL_BUDGET_BUCKET,
+    COL_TYPE,
+    COL_LINK,
     COL_PRIORITY,
-    COL_MILESTONE,
 }
 
 _NON_WEEK_COLS = {
@@ -60,7 +62,11 @@ def formulas_path(path: Path) -> Path:
 
 def read_plan(path: Path) -> pd.DataFrame:
     """
-    Read the input Excel file and return a DataFrame with the plan rows.
+    Read the input Excel file and return a DataFrame with all its columns.
+
+    Required columns: Epic Description, Estimation, Budget Bucket, Type, Link, Priority.
+    Optional columns (e.g. Milestone) and any extra columns are kept as-is.
+    Column order in the file does not matter.
 
     Raises
     ------
@@ -73,7 +79,7 @@ def read_plan(path: Path) -> pd.DataFrame:
         raise ValueError(
             f"Input file is missing required columns: {sorted(missing)}"
         )
-    return df[list(REQUIRED_INPUT_COLUMNS)]
+    return df
 
 
 def write_output(df: pd.DataFrame, path: Path) -> None:

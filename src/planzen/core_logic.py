@@ -51,12 +51,12 @@ class CapacityConfig:
     Net capacity = bruto − absence.
     """
 
-    num_engineers: int
-    num_managers: int
+    num_engineers: float
+    num_managers: float
 
     @property
     def eng_bruto(self) -> float:
-        return float(self.num_engineers)
+        return self.num_engineers
 
     @property
     def eng_absence(self) -> float:
@@ -68,7 +68,7 @@ class CapacityConfig:
 
     @property
     def mgmt_capacity(self) -> float:
-        return float(self.num_managers)
+        return self.num_managers
 
     @property
     def mgmt_absence(self) -> float:

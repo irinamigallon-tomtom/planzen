@@ -26,16 +26,20 @@ CAPACITY = CapacityConfig(num_engineers=5, num_managers=2)
 
 EPICS_DF = pd.DataFrame([
     {
-        "Epics": "Auth & Identity Management",
+        "Epic Description": "Auth & Identity Management",
         "Estimation": 80.0,
         "Budget Bucket": "Platform",
+        "Type": "Feature",
+        "Link": "https://jira.example.com/AUTH-1",
         "Priority": 0,
         "Milestone": "Q1",
     },
     {
-        "Epics": "Real-time Analytics",
+        "Epic Description": "Real-time Analytics",
         "Estimation": 40.0,
         "Budget Bucket": "Analytics",
+        "Type": "Feature",
+        "Link": "https://jira.example.com/ANA-1",
         "Priority": 1,
         "Milestone": "Q2",
     },
@@ -147,6 +151,18 @@ def test_absence_formula() -> None:
     assert CAPACITY.mgmt_absence == round(2 * ABSENCE_PW_PER_PERSON, 1)
 
 
+def test_fractional_fte_capacity() -> None:
+    """Headcounts like 2.5 engineers or 0.5 managers must produce correct capacity values."""
+    from planzen.config import ABSENCE_PW_PER_PERSON
+    cap = CapacityConfig(num_engineers=2.5, num_managers=0.5)
+    assert cap.eng_bruto == 2.5
+    assert cap.eng_absence == round(2.5 * ABSENCE_PW_PER_PERSON, 1)
+    assert cap.eng_net == round(2.5 - round(2.5 * ABSENCE_PW_PER_PERSON, 1), 1)
+    assert cap.mgmt_capacity == 0.5
+    assert cap.mgmt_absence == round(0.5 * ABSENCE_PW_PER_PERSON, 1)
+    assert cap.mgmt_net == round(0.5 - round(0.5 * ABSENCE_PW_PER_PERSON, 1), 1)
+
+
 def test_mgmt_net_capacity_row_present() -> None:
     df = _build()
     assert "Management Net Capacity" in df[OUT_COL_EPIC].values
@@ -178,8 +194,8 @@ def test_epics_sorted_by_priority_in_output() -> None:
 def test_no_gap_when_capacity_available() -> None:
     """Once an epic starts, every week with available capacity must get ≥ 0.1 PW."""
     single_epic = pd.DataFrame([{
-        "Epics": "Solo Epic", "Estimation": 50.0,
-        "Budget Bucket": "Core", "Priority": 0, "Milestone": "Q1",
+        "Epic Description": "Solo Epic", "Estimation": 50.0,
+        "Budget Bucket": "Core", "Type": "Feature", "Link": "link", "Priority": 0, "Milestone": "Q1",
     }])
     df = build_output_table(single_epic, CAPACITY, START, END)
     week_cols = [c for c in df.columns if c not in
@@ -195,8 +211,10 @@ def test_no_gap_when_capacity_available() -> None:
 def test_gap_admissible_when_capacity_exhausted() -> None:
     """Lower-priority epic gets 0 only when capacity is fully consumed by higher-priority."""
     greedy_epics = pd.DataFrame([
-        {"Epics": "Greedy", "Estimation": 999.0, "Budget Bucket": "A", "Priority": 0, "Milestone": "Q1"},
-        {"Epics": "Starved", "Estimation": 10.0,  "Budget Bucket": "B", "Priority": 1, "Milestone": "Q1"},
+        {"Epic Description": "Greedy", "Estimation": 999.0, "Budget Bucket": "A",
+         "Type": "Feature", "Link": "link-g", "Priority": 0, "Milestone": "Q1"},
+        {"Epic Description": "Starved", "Estimation": 10.0,  "Budget Bucket": "B",
+         "Type": "Feature", "Link": "link-s", "Priority": 1, "Milestone": "Q1"},
     ])
     df = build_output_table(greedy_epics, CAPACITY, START, END)
     week_cols = [c for c in df.columns if c not in
@@ -250,8 +268,8 @@ def test_validate_allocation_detects_weekly_overallocation() -> None:
 def test_overflow_scenario_is_valid() -> None:
     """Epic with huge estimation partially fills the quarter — not a violation."""
     overflow_epics = pd.DataFrame([{
-        "Epics": "Huge Epic", "Estimation": 999.0,
-        "Budget Bucket": "All", "Priority": 0, "Milestone": "Q4",
+        "Epic Description": "Huge Epic", "Estimation": 999.0,
+        "Budget Bucket": "All", "Type": "Feature", "Link": "link", "Priority": 0, "Milestone": "Q4",
     }])
     capacity = CapacityConfig(num_engineers=1, num_managers=0)
     df = build_output_table(overflow_epics, capacity, START, END)

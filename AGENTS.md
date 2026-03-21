@@ -32,7 +32,11 @@ Safety (workspace and secrets):
 
 Behavior with Copilot CLI:
     Keep PR‑sized changes; don’t refactor unrelated modules in one go.
+    Keep it simple, don't overengineer: strive for simple architectures and maintainable code.
+    Apply separation of concerns.
+    Start with tests and run them after any change.
     For nontrivial changes, propose a /plan first, then implement incrementally.
     Always update or add tests when changing behavior.
     For bug fixes, first write a test that reproduces the bug, then fix the code.
+    Update documentation and any sample data so it is in sync with the code.
 

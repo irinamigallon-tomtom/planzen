@@ -25,8 +25,8 @@ uv run planzen INPUT_FILE OUTPUT_FILE -q QUARTER [OPTIONS]
 | Option | Default | Description |
 |---|---|---|
 | `-q`, `--quarter` | *(required)* | Fiscal quarter to plan (1–4). Sets the 13-week date range automatically. |
-| `--num-engineers` | *(required)* | Number of engineers (E); bruto = E PW/week |
-| `--num-managers` | *(required)* | Number of line managers (M); capacity = M PW/week |
+| `--num-engineers` | *(required)* | Number of engineers; supports fractions for part-time members (e.g. `2.5`) |
+| `--num-managers` | *(required)* | Number of line managers; supports fractions (e.g. `0.5`) |
 
 All capacity values are in **Person-Weeks (PW)**. Each person contributes 1 PW/week of bruto capacity. Absence is **37 days/year (30 vacation + 7 sick) = 0.71 days/week per person = ≈ 0.142 PW/person/week** (÷ 5 working days/week). Net capacity = bruto − absence.
 
@@ -52,27 +52,28 @@ uv run planzen data/examples/input_example.xlsx data/examples/output_example.xls
 
 ## Input format
 
-The input is an Excel file (`.xlsx`) with **one row per Epic**. The following columns are required (order does not matter):
+The input is an Excel file (`.xlsx`) with **one row per Epic**. The following columns are required (column order and extra columns are ignored):
 
 | Column | Type | Description |
 |---|---|---|
-| `Epics` | text | Name of the Epic |
-| `Estimation` | float | Total capacity to allocate across all weeks (person-hours) |
+| `Epic Description` | text | Name / description of the Epic |
+| `Estimation` | float | Total capacity to allocate across all weeks (PW) |
 | `Budget Bucket` | text | Cost/budget category (e.g. Platform, Analytics, Product) |
-| `Priority` | integer | Priority rank (lower = higher priority) |
-| `Milestone` | text | Target milestone or quarter (e.g. Q1, Q2) |
+| `Type` | text | Epic type (e.g. Feature, Improvement) |
+| `Link` | text | URL to the Epic in your tracking tool |
+| `Priority` | integer | Priority rank (lower = higher priority; used for allocation order) |
 
-Additional columns in the file are ignored.
+The optional column `Milestone` (e.g. Q1, Q2) is preserved when present. Any other extra columns in the file are kept without error.
 
 ### Example input (`data/examples/input_example.xlsx`)
 
-| Epics | Estimation | Budget Bucket | Priority | Milestone |
-|---|---|---|---|---|
-| Auth & Identity Management | 80.0 | Platform | 0 | Q1 |
-| Real-time Analytics | 120.0 | Analytics | 0 | Q2 |
-| Mobile App Redesign | 100.0 | Product | 1 | Q2 |
-| API Gateway Optimization | 60.0 | Platform | 1 | Q3 |
-| Data Quality Framework | 90.0 | Analytics | 2 | Q3 |
+| Epic Description | Estimation | Budget Bucket | Type | Link | Priority | Milestone |
+|---|---|---|---|---|---|---|
+| Auth & Identity Management | 80.0 | Platform | Feature | …/AUTH-1 | 0 | Q1 |
+| Real-time Analytics | 120.0 | Analytics | Feature | …/ANA-1 | 0 | Q2 |
+| Mobile App Redesign | 100.0 | Product | Improvement | …/MOB-1 | 1 | Q2 |
+| API Gateway Optimization | 60.0 | Platform | Improvement | …/API-1 | 1 | Q3 |
+| Data Quality Framework | 90.0 | Analytics | Feature | …/DQ-1 | 2 | Q3 |
 
 ---
 
