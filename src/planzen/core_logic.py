@@ -13,6 +13,7 @@ from datetime import date, timedelta
 import pandas as pd
 
 from planzen.config import (
+    ABSENCE_PW_PER_PERSON,
     COL_BUDGET_BUCKET,
     COL_EPIC,
     COL_ESTIMATION,
@@ -52,7 +53,7 @@ class CapacityConfig:
 
     @property
     def eng_absence(self) -> float:
-        return round(self.num_engineers / 12, 1)
+        return round(self.num_engineers * ABSENCE_PW_PER_PERSON, 1)
 
     @property
     def eng_net(self) -> float:
@@ -64,7 +65,7 @@ class CapacityConfig:
 
     @property
     def mgmt_absence(self) -> float:
-        return round(self.num_managers / 12, 1)
+        return round(self.num_managers * ABSENCE_PW_PER_PERSON, 1)
 
     @property
     def mgmt_net(self) -> float:

@@ -25,3 +25,12 @@ LABEL_MGMT_ABSENCE = "Management Absence"
 LABEL_MGMT_NET = "Management Net Capacity"
 LABEL_TOTAL_ROW = "Weekly Allocation"
 LABEL_TOTAL_BUCKET = "Total"
+
+# Absence model: 37 days/year (30 vacation + 7 sick) distributed over 52 weeks
+# = 0.71 days/week per person = 0.142 PW/person/week (÷ 5 working days/week)
+ABSENCE_DAYS_PER_YEAR = 37
+WORKING_WEEKS_PER_YEAR = 52
+WORKING_DAYS_PER_WEEK = 5
+ABSENCE_PW_PER_PERSON: float = (
+    ABSENCE_DAYS_PER_YEAR / WORKING_WEEKS_PER_YEAR / WORKING_DAYS_PER_WEEK
+)  # ≈ 0.1423

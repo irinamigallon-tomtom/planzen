@@ -29,7 +29,7 @@ uv run planzen INPUT_FILE OUTPUT_FILE --start YYYY-MM-DD --end YYYY-MM-DD [OPTIO
 | `--num-engineers` | *(required)* | Number of engineers (E); bruto = E PW/week, absence = E/12 PW/week |
 | `--num-managers` | *(required)* | Number of line managers (M); capacity = M PW/week, absence = M/12 PW/week |
 
-All capacity values are in **Person-Weeks (PW)**. Absence is automatically assumed to be **1/12 of bruto** for both groups. Net capacity = bruto − absence.
+All capacity values are in **Person-Weeks (PW)**. Each person contributes 1 PW/week of bruto capacity. Absence is **37 days/year (30 vacation + 7 sick) = 0.71 days/week per person = ≈ 0.142 PW/person/week** (÷ 5 working days/week). Net capacity = bruto − absence.
 
 ### Example
 
@@ -80,10 +80,10 @@ The output is an Excel file (`.xlsx`) with a single sheet named **Allocation**.
 | Row label | Description |
 |---|---|
 | `Engineering Capacity (Bruto)` | `E × 1 PW` |
-| `Engineering Absence` | `E ÷ 12` |
+| `Engineering Absence` | `E × 0.142 PW` (37 days/year = 0.71 days/week ÷ 5) |
 | Engineering Net Capacity | Bruto − Absence; this is the weekly budget for Epic allocation |
 | Management Capacity | `M × 1 PW` |
-| Management Absence | `M ÷ 12` |
+| Management Absence | `M × 0.142 PW` |
 | Management Net Capacity | Management Capacity − Absence |
 
 **Epic rows** (one per Epic from the input):
@@ -112,11 +112,11 @@ Labelled `Total / Weekly Allocation` — shows the sum of all Epic allocations f
 | Budget Bucket | Epic / Capacity Metric | Priority | Estimation | Total Weeks | 1.05 | 1.12 | … | 12.28 |
 |---|---|---|---|---|---|---|---|---|
 | | Engineering Capacity (Bruto) | | | | 5.0 | 5.0 | … | 5.0 |
-| | Engineering Absence | | | | 0.4 | 0.4 | … | 0.4 |
-| | Engineering Net Capacity | | | | 4.6 | 4.6 | … | 4.6 |
+| | Engineering Absence | | | | 0.7 | 0.7 | … | 0.7 |
+| | Engineering Net Capacity | | | | 4.3 | 4.3 | … | 4.3 |
 | | Management Capacity | | | | 2.0 | 2.0 | … | 2.0 |
-| | Management Absence | | | | 0.2 | 0.2 | … | 0.2 |
-| | Management Net Capacity | | | | 1.8 | 1.8 | … | 1.8 |
+| | Management Absence | | | | 0.3 | 0.3 | … | 0.3 |
+| | Management Net Capacity | | | | 1.7 | 1.7 | … | 1.7 |
 | Platform | Auth & Identity Management | 0 | 80.0 | 78.0 | 1.5 | 1.5 | … | 1.5 |
 | Analytics | Real-time Analytics | 0 | 120.0 | 119.6 | 2.3 | 2.3 | … | 2.3 |
 | Product | Mobile App Redesign | 1 | 100.0 | 98.8 | 1.9 | 1.9 | … | 1.9 |

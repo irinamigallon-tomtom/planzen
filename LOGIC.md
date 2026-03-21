@@ -20,27 +20,27 @@ The total amount of capacity in a given Week (i.e. all capacities allocated in t
 
 The user provides the number of engineers (E) and line managers (M). The unit throughout is **Person-Weeks (PW)**. Each person contributes exactly 1 PW of bruto capacity per week.
 
+Absence is derived from a combined total of **37 days per year** (30 vacation + 7 sick days), distributed over 52 weeks = **0.71 days/week per person** = **≈ 0.142 PW/week per person** (÷ 5 working days/week).
+
 | Metric | Formula |
 |---|---|
 | Engineering Capacity (Bruto) | `E × 1 PW = E` |
-| Engineering Absence | `E ÷ 12` |
-| Engineering Net Capacity | `E − (E ÷ 12)` |
+| Engineering Absence | `E × 0.142 PW` (= E × 0.71 days ÷ 5; 37 days/year ÷ 52 weeks) |
+| Engineering Net Capacity | `E − (E × 0.142)` |
 | Management Capacity | `M × 1 PW = M` |
-| Management Absence | `M ÷ 12` |
-| Management Net Capacity | `M − (M ÷ 12)` |
-
-The factor of 1/12 represents the assumed fraction of working time lost to absence (e.g. holidays, sick leave).
+| Management Absence | `M × 0.142 PW` |
+| Management Net Capacity | `M − (M × 0.142)` |
 
 See a description of the expected output table below:
 
 | Budget Bucket   | Epic / Capacity Metric        | Priority   | Estimation   | Total Weeks   | 01.05   | 01.12   | 01.19   | 01.26   | 02.02   | ...   |
 | --------------- | ----------------------------- | ---------- | ------------ | ------------- | ------- | ------- | ------- | ------- | ------- | ----- |
 |                 | Engineering Capacity (Bruto)  |            |              |               | 5.0     | 5.0     | 5.0     | 5.0     | 5.0     | ...   |
-|                 | Engineering Absence           |            |              |               | 0.4     | 0.4     | 0.4     | 0.4     | 0.4     | ...   |
-|                 | Engineering Net Capacity      |            |              |               | 4.6     | 4.6     | 4.6     | 4.6     | 4.6     | ...   |
+|                 | Engineering Absence           |            |              |               | 0.7     | 0.7     | 0.7     | 0.7     | 0.7     | ...   |
+|                 | Engineering Net Capacity      |            |              |               | 4.3     | 4.3     | 4.3     | 4.3     | 4.3     | ...   |
 |                 | Management Capacity           |            |              |               | 2.0     | 2.0     | 2.0     | 2.0     | 2.0     | ...   |
-|                 | Management Absence            |            |              |               | 0.2     | 0.2     | 0.2     | 0.2     | 0.2     | ...   |
-|                 | Management Net Capacity       |            |              |               | 1.8     | 1.8     | 1.8     | 1.8     | 1.8     | ...   |
+|                 | Management Absence            |            |              |               | 0.3     | 0.3     | 0.3     | 0.3     | 0.3     | ...   |
+|                 | Management Net Capacity       |            |              |               | 1.7     | 1.7     | 1.7     | 1.7     | 1.7     | ...   |
 | --------------- | ----------------------------- | ---------- | ------------ | ------------- | ------- | ------- | ------- | ------- | ------- | ----- |
 | Platform        | Auth & Identity Management    | 0          | 80.0         | 78.0          | 1.5     | 1.5     | 1.5     | 1.5     | 1.5     | ...   |
 | Analytics       | Real-time Analytics           | 0          | 120.0        | 119.6         | 2.3     | 2.3     | 2.3     | 2.3     | 2.3     | ...   |

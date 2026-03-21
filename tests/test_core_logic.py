@@ -91,11 +91,12 @@ def test_eng_net_capacity_is_bruto_minus_absence() -> None:
 
 
 def test_absence_is_one_twelfth_of_headcount() -> None:
-    # bruto = headcount (1 PW per person); absence = headcount / 12
+    # 37 absence days/year ÷ 52 weeks ÷ 5 days/week = 0.142 PW/person/week
+    from planzen.config import ABSENCE_PW_PER_PERSON
     assert CAPACITY.eng_bruto == 5.0
-    assert CAPACITY.eng_absence == round(5 / 12, 1)
+    assert CAPACITY.eng_absence == round(5 * ABSENCE_PW_PER_PERSON, 1)
     assert CAPACITY.mgmt_capacity == 2.0
-    assert CAPACITY.mgmt_absence == round(2 / 12, 1)
+    assert CAPACITY.mgmt_absence == round(2 * ABSENCE_PW_PER_PERSON, 1)
 
 
 def test_mgmt_net_capacity_row_present() -> None:
