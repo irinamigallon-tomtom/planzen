@@ -13,6 +13,8 @@ from pathlib import Path
 
 import openpyxl
 import pandas as pd
+from openpyxl.formatting.rule import FormulaRule
+from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from planzen.config import (
@@ -69,6 +71,19 @@ _CAPACITY_LABELS = {
     LABEL_MGMT_CAPACITY, LABEL_MGMT_ABSENCE, LABEL_MGMT_NET,
     LABEL_TOTAL_ROW, LABEL_CAPACITY_ALERT_ROW,
 }
+
+_ALERT_FILL = PatternFill(fill_type="solid", start_color="00FFC7CE", end_color="00FFC7CE")
+_ALERT_FONT = Font(color="009C0006")
+_BUCKET_COLOR_BY_LABEL: list[tuple[str, str]] = [
+    ("Self-Service ML EV Range - Phase 1", "00548235"),  # dark green
+    ("Quality improvements through ML/AI experimentation", "00C6EFCE"),  # green
+    ("Maintenance & Release", "00B4C6E7"),  # blue
+    ("Security & Compliance", "00D9D2E9"),  # purple
+    ("Customer Support", "00FFC7CE"),  # red
+    ("Critical Technical Debt", "00FCE4D6"),  # orange
+    ("Critical Product Debt", "00FFF2CC"),  # yellow
+    ("Critical Customer Commitments", "00F8CBAD"),  # light orange
+]
 
 
 def _normalize_config_label(s: object) -> str:
@@ -516,6 +531,91 @@ def write_output(df: pd.DataFrame, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with pd.ExcelWriter(path, engine="openpyxl") as writer:
         df.to_excel(writer, index=False, sheet_name="Allocation")
+        ws = writer.sheets["Allocation"]
+        _apply_conditional_formatting(
+            ws,
+            col_names=list(df.columns),
+            labels=list(df[OUT_COL_EPIC]),
+        )
+
+
+def _apply_conditional_formatting(ws, col_names: list[str], labels: list[object]) -> None:
+    """Apply formula-based formatting rules that remain dynamic after manual edits."""
+    if not labels:
+        return
+
+    week_col_indices = [
+        col_names.index(c) + 1
+        for c in col_names if c not in _NON_WEEK_COLS
+    ]
+    if not week_col_indices:
+        return
+
+    epic_excel_rows = [
+        i + 2 for i, lbl in enumerate(labels)
+        if lbl not in _CAPACITY_LABELS and lbl is not None
+    ]
+    if not epic_excel_rows:
+        return
+
+    first_epic_row = epic_excel_rows[0]
+    last_epic_row = epic_excel_rows[-1]
+    first_data_row = 2
+    last_data_row = len(labels) + 1
+    first_col_letter = get_column_letter(1)
+    last_col_letter = get_column_letter(len(col_names))
+    full_data_range = f"{first_col_letter}{first_data_row}:{last_col_letter}{last_data_row}"
+
+    first_week_letter = get_column_letter(week_col_indices[0])
+    last_week_letter = get_column_letter(week_col_indices[-1])
+
+    budget_bucket_col_letter = get_column_letter(col_names.index(OUT_COL_BUDGET_BUCKET) + 1)
+    off_estimate_col_letter = get_column_letter(col_names.index(OUT_COL_OFF_ESTIMATE) + 1)
+
+    r_capacity_alert = labels.index(LABEL_CAPACITY_ALERT_ROW) + 2
+
+    # Highlight boolean outputs when they evaluate to TRUE.
+    off_estimate_range = (
+        f"{off_estimate_col_letter}{first_epic_row}:"
+        f"{off_estimate_col_letter}{last_epic_row}"
+    )
+    off_estimate_true_formula = f"{off_estimate_col_letter}{first_epic_row}=TRUE"
+    ws.conditional_formatting.add(
+        off_estimate_range,
+        FormulaRule(
+            formula=[off_estimate_true_formula],
+            stopIfTrue=True,
+            fill=_ALERT_FILL,
+            font=_ALERT_FONT,
+        ),
+    )
+
+    capacity_alert_range = (
+        f"{first_week_letter}{r_capacity_alert}:"
+        f"{last_week_letter}{r_capacity_alert}"
+    )
+    capacity_alert_true_formula = f"{first_week_letter}{r_capacity_alert}=TRUE"
+    ws.conditional_formatting.add(
+        capacity_alert_range,
+        FormulaRule(
+            formula=[capacity_alert_true_formula],
+            stopIfTrue=True,
+            fill=_ALERT_FILL,
+            font=_ALERT_FONT,
+        ),
+    )
+
+    # Color full data rows by Budget Bucket text; formulas are relative by row.
+    for bucket_label, fill_color in _BUCKET_COLOR_BY_LABEL:
+        safe_label = bucket_label.replace('"', '""')
+        ws.conditional_formatting.add(
+            full_data_range,
+            FormulaRule(
+                formula=[f'${budget_bucket_col_letter}{first_data_row}="{safe_label}"'],
+                stopIfTrue=False,
+                fill=PatternFill(fill_type="solid", start_color=fill_color, end_color=fill_color),
+            ),
+        )
 
 
 def write_output_with_formulas(df: pd.DataFrame, path: Path) -> None:

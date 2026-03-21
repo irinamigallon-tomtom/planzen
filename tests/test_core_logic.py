@@ -478,6 +478,82 @@ def test_uniform_is_sequential() -> None:
             assert row[w] >= 0.1, f"Uniform gap in {w} despite available capacity"
 
 
+def test_uniform_rounding_top_up_happens_before_lower_priority_starts() -> None:
+    """A higher-priority Uniform epic must be topped up to estimate before lower priorities consume capacity."""
+    q1_start, q1_end = FISCAL_QUARTERS[1]
+    epics = pd.DataFrame([
+        {
+            "Epic Description": "Top",
+            "Estimation": 4.0,
+            "Budget Bucket": "Core",
+            "Type": "Feature",
+            "Link": "link-top",
+            "Priority": 0,
+            "Milestone": "Q1",
+            "Allocation Mode": ALLOC_MODE_UNIFORM,
+        },
+        {
+            "Epic Description": "Lower",
+            "Estimation": 10.0,
+            "Budget Bucket": "Core",
+            "Type": "Feature",
+            "Link": "link-low",
+            "Priority": 1,
+            "Milestone": "Q1",
+            "Allocation Mode": ALLOC_MODE_SPRINT,
+        },
+    ])
+    df = build_output_table(epics, CAPACITY, q1_start, q1_end)
+    top_row = df[df[OUT_COL_EPIC] == "Top"].iloc[0]
+    lower_row = df[df[OUT_COL_EPIC] == "Lower"].iloc[0]
+
+    # 4.0 / 13 rounds to 0.3, so a naive Uniform pass would produce 3.9.
+    # The allocator must top up the higher-priority epic before lower priorities.
+    assert top_row[OUT_COL_TOTAL_WEEKS] == pytest.approx(4.0, abs=1e-6)
+    assert top_row[OUT_COL_OFF_ESTIMATE] is False
+    assert lower_row[OUT_COL_TOTAL_WEEKS] <= 10.0 + 1e-9
+
+
+def test_lower_priority_may_start_but_not_finish_if_higher_priority_unfinished_in_quarter() -> None:
+    """If priority N is unfinished in quarter, priority N+1 cannot finish in that quarter."""
+    epics = pd.DataFrame([
+        {
+            "Epic Description": "Higher",
+            "Estimation": 10.0,
+            "Budget Bucket": "Core",
+            "Type": "Feature",
+            "Link": "link-high",
+            "Priority": 0,
+            "Milestone": "Q1",
+            "Allocation Mode": ALLOC_MODE_SPRINT,
+        },
+        {
+            "Epic Description": "Lower",
+            "Estimation": 2.0,
+            "Budget Bucket": "Core",
+            "Type": "Feature",
+            "Link": "link-low",
+            "Priority": 1,
+            "Milestone": "Q1",
+            "Allocation Mode": ALLOC_MODE_SPRINT,
+        },
+    ])
+    df = build_output_table(epics, CAPACITY, START, END)
+    higher_row = df[df[OUT_COL_EPIC] == "Higher"].iloc[0]
+    lower_row = df[df[OUT_COL_EPIC] == "Lower"].iloc[0]
+
+    week_cols = [c for c in df.columns if c not in _WEEK_COLS_SET]
+    quarter_weeks = week_cols[:4]
+    higher_q = round(sum(float(higher_row[w]) for w in quarter_weeks), 1)
+    lower_q = round(sum(float(lower_row[w]) for w in quarter_weeks), 1)
+
+    # Priority 0 cannot finish in 4 weeks with Sprint cap (2.0/week -> 8.0 max).
+    assert higher_q < higher_row[OUT_COL_ESTIMATION] - 0.05
+    # Priority 1 may start in the quarter, but must remain unfinished there.
+    assert lower_q > 0.0
+    assert lower_q < lower_row[OUT_COL_ESTIMATION] - 0.05
+
+
 def test_gaps_allowed_skips_weeks_below_minimum() -> None:
     """Gaps: if remaining capacity rounds below 0.1, week gets 0 (no forcing)."""
     # Use 2 epics: Sprint eats 2.0/week, leaving 2.3 for gaps epic.

@@ -73,7 +73,7 @@ Column order does not matter. Column names are matched case-insensitively. Any a
 | `Priority` | — | From input |
 | `Estimation` | PW (total) | Total effort budget from input |
 | `Total Weeks` | PW (total for the quarter) | Sum of all weekly allocations |
-| `Off Estimate` | bool | `True` if `abs(Total Weeks − Estimation) > 0.05` — epic was not fully allocated |
+| `Off Estimate` | bool | `True` if `abs(Total Weeks − Estimation) > 0.05` — epic was not fully allocated. Highlighted red by conditional formatting when `TRUE`. |
 | `Mon.DD` week columns | PW/week | Capacity allocated to this epic that week |
 
 ### Total row
@@ -82,7 +82,35 @@ Column order does not matter. Column names are matched case-insensitively. Any a
 
 ### Alert row
 
-`Off Capacity` — last row. Per week column: `True` if `abs(Weekly Allocation − Engineer Net Capacity) > 0.1` — the week is under- or over-allocated.
+`Off Capacity` — last row. Per week column: `True` if `abs(Weekly Allocation − Engineer Net Capacity) > 0.1` — the week is under- or over-allocated. Highlighted red by conditional formatting when `TRUE`.
+
+---
+
+## Conditional formatting
+
+Both output files (values and formulas) include Excel formula-based conditional formatting rules so that highlights update automatically when the workbook is edited manually.
+
+### Boolean alert highlighting
+
+| Cell range | Rule | Colour |
+|---|---|---|
+| `Off Estimate` column (epic rows) | cell `= TRUE` | Red (`#FFC7CE` fill, `#9C0006` font) |
+| `Off Capacity` row (week columns) | cell `= TRUE` | Red (`#FFC7CE` fill, `#9C0006` font) |
+
+### Budget Bucket row colours
+
+When a row's `Budget Bucket` matches one of the values below, the **entire row** receives that background colour. The rule is formula-based (`=$A2="<label>"`) so it survives manual edits.
+
+| Budget Bucket | Colour |
+|---|---|
+| `Self-Service ML EV Range - Phase 1` | Dark green (`#548235`) |
+| `Quality improvements through ML/AI experimentation` | Green (`#C6EFCE`) |
+| `Maintenance & Release` | Blue (`#B4C6E7`) |
+| `Security & Compliance` | Purple (`#D9D2E9`) |
+| `Customer Support` | Red (`#FFC7CE`) |
+| `Critical Technical Debt` | Orange (`#FCE4D6`) |
+| `Critical Product Debt` | Yellow (`#FFF2CC`) |
+| `Critical Customer Commitments` | Light orange (`#F8CBAD`) |
 
 ---
 

@@ -18,6 +18,7 @@ from openpyxl.utils import get_column_letter
 
 from planzen.config import (
     FISCAL_QUARTERS,
+    OUT_COL_BUDGET_BUCKET,
     LABEL_CAPACITY_ALERT_ROW,
     LABEL_ENG_ABSENCE,
     LABEL_ENG_BRUTO,
@@ -840,6 +841,130 @@ def test_formulas_file_off_capacity_has_abs_formula(formulas_file: Path) -> None
         assert isinstance(val, str) and "ABS" in val.upper(), (
             f"Off Capacity cell ({alert_row},{col_idx}) should be =ABS(...) formula, got {val!r}"
         )
+
+
+def _cf_rules_for_range(ws, cell_range: str):
+    marker = f"ConditionalFormatting {cell_range}>"
+    for sqref, rules in ws.conditional_formatting._cf_rules.items():
+        if marker in str(sqref):
+            return rules
+    return []
+
+
+def test_values_file_has_conditional_formatting_rules(values_file: Path) -> None:
+    wb = openpyxl.load_workbook(values_file, data_only=False)
+    ws = wb.active
+
+    week_cols = _week_cols(ws)
+    first_week = get_column_letter(week_cols[0])
+    last_week = get_column_letter(week_cols[-1])
+
+    off_est_col = next(
+        c for c in range(1, ws.max_column + 1)
+        if ws.cell(1, c).value == OUT_COL_OFF_ESTIMATE
+    )
+    off_est_letter = get_column_letter(off_est_col)
+    bucket_col = next(
+        c for c in range(1, ws.max_column + 1)
+        if ws.cell(1, c).value == OUT_COL_BUDGET_BUCKET
+    )
+    bucket_col_letter = get_column_letter(bucket_col)
+
+    r_alert = _find_row(ws, LABEL_CAPACITY_ALERT_ROW)
+    epic_rows = [
+        row[0].row
+        for row in ws.iter_rows(min_row=2)
+        if row[1].value not in _CAPACITY_LABELS and row[1].value is not None
+    ]
+    first_epic = epic_rows[0]
+    last_epic = epic_rows[-1]
+
+    off_est_range = f"{off_est_letter}{first_epic}:{off_est_letter}{last_epic}"
+    off_est_rules = _cf_rules_for_range(ws, off_est_range)
+    assert off_est_rules, f"Expected conditional formatting on range {off_est_range}"
+    expected_off_est_formula = f"{off_est_letter}{first_epic}=TRUE"
+    assert any(
+        getattr(rule, "type", "") == "expression"
+        and expected_off_est_formula in getattr(rule, "formula", [])
+        for rule in off_est_rules
+    ), "Missing expression rule for TRUE Off Estimate cells"
+
+    alert_range = f"{first_week}{r_alert}:{last_week}{r_alert}"
+    alert_rules = _cf_rules_for_range(ws, alert_range)
+    assert alert_rules, f"Expected conditional formatting on range {alert_range}"
+    expected_alert_formula = f"{first_week}{r_alert}=TRUE"
+    assert any(
+        getattr(rule, "type", "") == "expression"
+        and expected_alert_formula in getattr(rule, "formula", [])
+        for rule in alert_rules
+    ), "Missing expression rule for TRUE Off Capacity cells"
+
+    full_data_range = f"A2:{get_column_letter(ws.max_column)}{ws.max_row}"
+    full_row_rules = _cf_rules_for_range(ws, full_data_range)
+    assert full_row_rules, f"Expected conditional formatting on range {full_data_range}"
+    expected_bucket_formulas = {
+        f'${bucket_col_letter}2="Self-Service ML EV Range - Phase 1"',
+        f'${bucket_col_letter}2="Quality improvements through ML/AI experimentation"',
+        f'${bucket_col_letter}2="Maintenance & Release"',
+        f'${bucket_col_letter}2="Security & Compliance"',
+        f'${bucket_col_letter}2="Customer Support"',
+        f'${bucket_col_letter}2="Critical Technical Debt"',
+        f'${bucket_col_letter}2="Critical Product Debt"',
+        f'${bucket_col_letter}2="Critical Customer Commitments"',
+    }
+    found_formulas = {
+        rule.formula[0]
+        for rule in full_row_rules
+        if getattr(rule, "type", "") == "expression" and getattr(rule, "formula", None)
+    }
+    assert expected_bucket_formulas.issubset(found_formulas), (
+        "Missing one or more budget-bucket row color rules"
+    )
+
+
+def test_formulas_file_has_conditional_formatting_rules(formulas_file: Path) -> None:
+    wb = openpyxl.load_workbook(formulas_file, data_only=False)
+    ws = wb.active
+
+    week_cols = _week_cols(ws)
+    first_week = get_column_letter(week_cols[0])
+    last_week = get_column_letter(week_cols[-1])
+
+    off_est_col = next(
+        c for c in range(1, ws.max_column + 1)
+        if ws.cell(1, c).value == OUT_COL_OFF_ESTIMATE
+    )
+    off_est_letter = get_column_letter(off_est_col)
+    r_alert = _find_row(ws, LABEL_CAPACITY_ALERT_ROW)
+    epic_rows = [
+        row[0].row
+        for row in ws.iter_rows(min_row=2)
+        if row[1].value not in _CAPACITY_LABELS and row[1].value is not None
+    ]
+    first_epic = epic_rows[0]
+    last_epic = epic_rows[-1]
+
+    off_est_range = f"{off_est_letter}{first_epic}:{off_est_letter}{last_epic}"
+    off_est_rules = _cf_rules_for_range(ws, off_est_range)
+    assert off_est_rules, (
+        f"Expected conditional formatting on range {off_est_range}"
+    )
+    assert any(
+        getattr(rule, "type", "") == "expression"
+        and f"{off_est_letter}{first_epic}=TRUE" in getattr(rule, "formula", [])
+        for rule in off_est_rules
+    )
+
+    alert_range = f"{first_week}{r_alert}:{last_week}{r_alert}"
+    alert_rules = _cf_rules_for_range(ws, alert_range)
+    assert alert_rules, (
+        f"Expected conditional formatting on range {alert_range}"
+    )
+    assert any(
+        getattr(rule, "type", "") == "expression"
+        and f"{first_week}{r_alert}=TRUE" in getattr(rule, "formula", [])
+        for rule in alert_rules
+    )
 
 
 # ---------------------------------------------------------------------------

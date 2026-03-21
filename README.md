@@ -156,12 +156,12 @@ Cells replaced by formulas in the formulas file:
 | `Priority` | — | From input |
 | `Estimation` | PW (total) | Total effort budget from input |
 | `Total Weeks` | PW (total) | Sum of all weekly allocations for this quarter |
-| `Off Estimate` | bool | `True` if epic was not fully allocated (`abs(Total Weeks − Estimation) > 0.05`) |
+| `Off Estimate` | bool | `True` if epic was not fully allocated (`abs(Total Weeks − Estimation) > 0.05`). Highlighted **red** when `TRUE`. |
 | `Mon.DD` … | PW/week | Capacity allocated to this epic that week |
 
 **Total row** — `Weekly Allocation`: sum of all epic allocations per week (PW/week).
 
-**Alert row** — `Off Capacity`: per week column, `True` if `abs(Weekly Allocation − Engineer Net Capacity) > 0.1`.
+**Alert row** — `Off Capacity`: per week column, `True` if `abs(Weekly Allocation − Engineer Net Capacity) > 0.1`. Highlighted **red** when `TRUE`.
 
 ### Allocation rules
 
@@ -188,6 +188,29 @@ Cells replaced by formulas in the formulas file:
 | Total | Weekly Allocation | | | | 4.8 | 4.8 | … | 4.8 |
 
 Week column headers: `Mon.DD` format (e.g. `Mar.30`, `Jun.22`). Each quarter has **13 week columns**.
+
+### Conditional formatting
+
+Both output files embed formula-based conditional formatting so cells stay highlighted correctly after manual edits:
+
+| What gets coloured | Trigger | Colour |
+|---|---|---|
+| `Off Estimate` cell (epic rows) | cell `= TRUE` | Red (`#FFC7CE`) |
+| `Off Capacity` cell (alert row, weekly) | cell `= TRUE` | Red (`#FFC7CE`) |
+| Entire row | `Budget Bucket` matches a known label | See table below |
+
+**Budget Bucket row colours:**
+
+| Budget Bucket | Colour |
+|---|---|
+| `Self-Service ML EV Range - Phase 1` | Dark green |
+| `Quality improvements through ML/AI experimentation` | Green |
+| `Maintenance & Release` | Blue |
+| `Security & Compliance` | Purple |
+| `Customer Support` | Red |
+| `Critical Technical Debt` | Orange |
+| `Critical Product Debt` | Yellow |
+| `Critical Customer Commitments` | Light orange |
 
 ---
 
