@@ -47,7 +47,7 @@ TEAM_CONFIG_LABELS = {
 
 # Output table column labels
 OUT_COL_BUDGET_BUCKET = "Budget Bucket"
-OUT_COL_EPIC = "Epic / Capacity Metric"
+OUT_COL_EPIC = "Epic Description"
 OUT_COL_PRIORITY = "Priority"
 OUT_COL_ESTIMATION = "Estimation"
 OUT_COL_TOTAL_WEEKS = "Total Weeks"
@@ -56,7 +56,7 @@ OUT_COL_TOTAL_WEEKS = "Total Weeks"
 LABEL_ENG_BRUTO = "Engineer Capacity (Bruto)"
 LABEL_ENG_ABSENCE = "Engineer Absence"
 LABEL_ENG_NET = "Engineer Net Capacity"
-LABEL_MGMT_CAPACITY = "Management Capacity"
+LABEL_MGMT_CAPACITY = "Management Capacity (Bruto)"
 LABEL_MGMT_ABSENCE = "Management Absence"
 LABEL_MGMT_NET = "Management Net Capacity"
 LABEL_TOTAL_ROW = "Weekly Allocation"

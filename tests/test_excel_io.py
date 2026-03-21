@@ -102,7 +102,7 @@ def _find_row(ws, label: str, label_col: int = 2) -> int:
 
 def _week_cols(ws, header_row: int = 1) -> list[int]:
     """Return 1-based column indices for all week columns (non-metadata columns)."""
-    non_week = {"Budget Bucket", "Epic / Capacity Metric", "Priority", "Estimation", "Total Weeks", "Off Estimate"}
+    non_week = {"Budget Bucket", "Epic Description", "Priority", "Estimation", "Total Weeks", "Off Estimate"}
     return [
         cell.column for cell in ws[header_row]
         if cell.value not in non_week and cell.value is not None
