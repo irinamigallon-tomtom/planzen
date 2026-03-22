@@ -1,20 +1,78 @@
 # planzen
 
-planzen reads a quarterly engineering plan from an Excel file, allocates weekly capacity to Epics, and writes two review-friendly Excel output files — one with plain values, one with auditable formulas.
+planzen reads a quarterly engineering plan from an Excel file, allocates weekly capacity to Epics, and writes two review-friendly Excel output files — one with plain values, one with auditable formulas. It ships both as a **CLI tool** for scripted use and a **web frontend** for interactive editing and preview.
 
 ---
 
-## Installation
+## Quick start
+
+### CLI
 
 Requires [uv](https://github.com/astral-sh/uv).
 
 ```bash
 uv sync
+uv run planzen INPUT_FILE -q QUARTER [-o OUTPUT_DIR]
 ```
+
+### Web frontend
+
+**1. Backend** (from repo root):
+
+```bash
+uv run uvicorn main:app --app-dir web/backend --reload --port 8000
+```
+
+**2. Frontend** (separate terminal, from `web/frontend/`):
+
+```bash
+npm install   # first time only
+npm run dev
+```
+
+Opens at http://localhost:5173
 
 ---
 
-## Usage
+## Web frontend — user guide
+
+### 1. Upload a plan
+
+- Drop an `.xlsx` file onto the upload zone (or click to browse)
+- Select the fiscal quarter (Q1–Q4)
+- Click **Upload** — the backend parses the file and creates a session
+- Existing sessions from previous runs appear below the upload zone; click **Load** to resume
+
+### 2. Edit capacity
+
+- The **Capacity** panel shows Engineer and Management bruto/absence values
+- Edit any field — the allocation table updates automatically after 500 ms
+
+### 3. Edit epics
+
+- The **Epics** table shows all epic fields (description, estimation, priority, budget bucket, allocation mode, milestone, type, link)
+- Click any cell to edit it inline
+- Use the **Add Epic** button to add a new row; drag the row handle to reorder and renumber priorities
+- The **Delete** button (✕) on each row removes it
+- Changes trigger a live re-compute after 500 ms
+
+### 4. Allocation preview
+
+- The **Allocation Preview** table shows the full computed allocation (capacity rows + epic rows + total + alert rows)
+- Red cells: **Off Estimate** (epic not fully allocated) or **Off Capacity** (week over/under-allocated)
+- Budget Bucket row colours match the Excel output
+- Week cells in epic rows are editable — type a value to override the computed allocation for that cell
+
+### 5. Export
+
+- Click **Download Export** to download a `.zip` containing two Excel files:
+  - `{filename}_values.xlsx` — plain computed values
+  - `{filename}_formulas.xlsx` — same data with auditable Excel formulas and conditional formatting
+- These are identical to what the CLI produces
+
+---
+
+## CLI usage
 
 ```bash
 uv run planzen INPUT_FILE -q QUARTER [-o OUTPUT_DIR]
@@ -110,8 +168,23 @@ Row background colours by `Budget Bucket` value and formula-based conditional fo
 
 ## Development
 
+### Running tests
+
 ```bash
-uv run pytest        # run tests
+uv run pytest                              # all tests (CLI + backend)
+cd web/frontend && npm test -- --run       # frontend tests
 ```
 
-See `LOGIC.md` for allocation rules, `SPECS.md` for implementation details, and `CONTRIBUTING.md` for workflow and commit conventions.
+### Adding backend dependencies
+
+```bash
+uv add <package>   # updates pyproject.toml
+```
+
+### Adding frontend dependencies
+
+```bash
+cd web/frontend && npm install <package>
+```
+
+See `LOGIC.md` for allocation rules, `SPECS.md` for implementation details, `ARCHITECTURE.md` for system design, and `CONTRIBUTING.md` for workflow and commit conventions.

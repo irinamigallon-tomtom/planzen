@@ -253,3 +253,265 @@ OFF_CAPACITY_THRESHOLD = 0.1
 - Per-week absence with NaN weeks → defaults to 0 PW for those weeks
 - Per-week bruto with partial weeks → hard validation error
 - Uniform epic with `est % n_weeks ≠ 0` (rounding gap) in overflow scenario → fully allocated in Q, no spill to overflow weeks
+
+---
+
+## 11. Web API
+
+### 11.1 Technology
+
+- Python FastAPI, Pydantic v2, uvicorn
+- Shares the same `uv` environment as the CLI (same `pyproject.toml`)
+- Lives in `web/backend/`; imports `planzen.*` as an installed package (no `sys.path` hacks)
+- Session state persisted as JSON files in `tmp/sessions/{session_id}.json`
+- `PLANZEN_SESSION_DIR` env var overrides the session directory (used in tests)
+
+Run: `uv run uvicorn main:app --app-dir web/backend --reload --port 8000`
+
+### 11.2 Pydantic Models
+
+```python
+class CapacityConfigModel(BaseModel):
+    eng_bruto: float            # FTE
+    eng_absence: float          # PW/week
+    mgmt_capacity: float        # FTE
+    mgmt_absence: float         # PW/week
+    eng_bruto_by_week: dict[str, float] = {}   # "Mar.30" → PW/week
+    eng_absence_by_week: dict[str, float] = {} # "Mar.30" → PW/week
+
+class EpicModel(BaseModel):
+    epic_description: str
+    estimation: float
+    budget_bucket: str
+    priority: float
+    allocation_mode: str = "Sprint"   # Sprint | Uniform | Gaps
+    link: str = ""
+    type: str = ""
+    milestone: str = ""
+
+class SessionState(BaseModel):
+    session_id: str
+    filename: str
+    quarter: int
+    capacity: CapacityConfigModel
+    epics: list[EpicModel]
+    manual_overrides: dict[str, dict[str, float]] = {}  # epic_description → week_label → PW
+
+class AllocationRow(BaseModel):
+    label: str
+    budget_bucket: str = ""
+    priority: float | None = None
+    estimation: float | None = None
+    total_weeks: float | None = None
+    off_estimate: bool | None = None
+    week_values: dict[str, float | bool | None] = {}
+
+class ComputeResponse(BaseModel):
+    session_id: str
+    rows: list[AllocationRow]
+    week_labels: list[str]
+    has_overflow: bool
+    validation_errors: list[str] = []
+```
+
+### 11.3 API Endpoints
+
+All routes are prefixed `/api`.
+
+| Method | Path | Request | Response | Notes |
+|---|---|---|---|---|
+| GET | `/health` | — | `{"status": "ok"}` | Health check |
+| POST | `/sessions/upload` | multipart: `file` (xlsx), `quarter` (int) | `SessionState` | Calls `validate_input_file` then `read_input`; returns 422 with error list on validation failure |
+| GET | `/sessions` | — | `list[SessionState]` | Lists all saved sessions |
+| GET | `/sessions/{id}` | — | `SessionState` | 404 if not found |
+| DELETE | `/sessions/{id}` | — | 204 | Deletes session file |
+| PUT | `/sessions/{id}/capacity` | `CapacityConfigModel` | `SessionState` | Replaces capacity; persists |
+| PUT | `/sessions/{id}/epics` | `list[EpicModel]` | `SessionState` | Replaces epics list; persists |
+| PATCH | `/sessions/{id}/overrides` | `dict[str, dict[str, float]]` | `SessionState` | Merges manual overrides; persists |
+| POST | `/sessions/{id}/compute` | — | `ComputeResponse` | Runs `build_output_table`; applies manual overrides as display post-processing; runs `validate_allocation` |
+| GET | `/sessions/{id}/export` | — | `application/zip` | Runs `write_output` + `write_output_with_formulas`; zips both files; streams download; cleans up temp files |
+
+### 11.4 Bridge (`bridge.py`)
+
+Thin adapter between JSON models and core_logic types:
+
+- `capacity_config_from_model(model: CapacityConfigModel) -> CapacityConfig` — builds `CapacityConfig`; converts week-label strings (`"Mar.30"`) to `datetime.date` objects for per-week dicts
+- `capacity_config_to_model(config: CapacityConfig, mondays: list[date]) -> CapacityConfigModel` — inverse; converts date keys back to label strings
+- `epics_df_from_models(epics: list[EpicModel]) -> pd.DataFrame` — builds DataFrame with column names from `config.py` constants
+- `allocation_df_to_rows(df, all_week_labels, quarter_week_labels) -> list[AllocationRow]` — serialises the output DataFrame to `AllocationRow` list; `week_values` uses string week labels as keys
+
+### 11.5 Session Persistence (`persistence.py`)
+
+- Sessions stored as `{PLANZEN_SESSION_DIR}/{session_id}.json` (default dir: `tmp/sessions/`)
+- `save_session(state)`, `load_session(id)` (raises HTTP 404 if missing), `list_sessions()`, `delete_session(id)`
+- Session IDs: UUID4
+
+### 11.6 Backend Tests to Cover (`web/backend/tests/`)
+
+**`test_bridge.py`:**
+- `epics_df_from_models`: correct columns and values
+- `capacity_config_from_model`: scalar fields; per-week dict date conversion
+- `capacity_config_to_model`: round-trip preserves scalars
+- `allocation_df_to_rows`: correct `AllocationRow` list with `week_values`
+
+**`test_routes.py`:**
+- `GET /api/health` → 200
+- `POST /api/sessions/upload` with example xlsx + quarter=2 → 200, session_id present, epics non-empty
+- `GET /api/sessions/{id}` → 200
+- `PUT /api/sessions/{id}/capacity` → 200
+- `PUT /api/sessions/{id}/epics` → 200
+- `DELETE /api/sessions/{id}` → 204; subsequent GET → 404
+- `POST /api/sessions/{id}/compute` → 200, rows non-empty, 13+ week_labels
+- `GET /api/sessions/{id}/export` → 200, content-type zip
+
+Tests use `PLANZEN_SESSION_DIR` env var pointing to a `tmp_path` fixture to avoid polluting `tmp/sessions/`.
+
+---
+
+## 12. Web Frontend
+
+### 12.1 Technology
+
+- React 18 + TypeScript (strict mode) + Vite 8
+- Tailwind CSS v4 (via `@tailwindcss/vite` plugin)
+- AG Grid Community v35 — editable data grids
+- TanStack Query v5 — server state (session data)
+- Zustand v5 — UI state (current session ID)
+- react-dropzone — file upload
+- Vitest + React Testing Library + jsdom — tests
+
+Lives in `web/frontend/`. Dev server: `npm run dev` → `http://localhost:5173` (proxies `/api` → `http://localhost:8000`).
+
+### 12.2 TypeScript Types (`src/types/index.ts`)
+
+```typescript
+interface CapacityConfig {
+  eng_bruto: number;
+  eng_absence: number;
+  mgmt_capacity: number;
+  mgmt_absence: number;
+  eng_bruto_by_week: Record<string, number>;
+  eng_absence_by_week: Record<string, number>;
+}
+
+interface Epic {
+  epic_description: string;
+  estimation: number;
+  budget_bucket: string;
+  priority: number;
+  allocation_mode: 'Sprint' | 'Uniform' | 'Gaps';
+  link: string;
+  type: string;
+  milestone: string;
+}
+
+interface SessionSummary { session_id: string; filename: string; quarter: number; }
+interface SessionState extends SessionSummary { capacity: CapacityConfig; epics: Epic[]; manual_overrides: Record<string, Record<string, number>>; }
+
+interface AllocationRow {
+  label: string;
+  budget_bucket: string;
+  priority: number | null;
+  estimation: number | null;
+  total_weeks: number | null;
+  off_estimate: boolean | null;
+  week_values: Record<string, number | boolean | null>;
+}
+
+interface ComputeResponse {
+  session_id: string;
+  rows: AllocationRow[];
+  week_labels: string[];
+  has_overflow: boolean;
+  validation_errors: string[];
+}
+```
+
+### 12.3 API Client (`src/api/client.ts`)
+
+Typed `fetch` wrappers for all backend endpoints. All functions are async and throw on non-OK responses.
+
+| Function | Method + Path |
+|---|---|
+| `uploadSession(file, quarter)` | POST `/api/sessions/upload` (FormData) |
+| `listSessions()` | GET `/api/sessions` |
+| `getSession(id)` | GET `/api/sessions/{id}` |
+| `deleteSession(id)` | DELETE `/api/sessions/{id}` |
+| `updateCapacity(id, capacity)` | PUT `/api/sessions/{id}/capacity` |
+| `updateEpics(id, epics)` | PUT `/api/sessions/{id}/epics` |
+| `updateOverrides(id, overrides)` | PATCH `/api/sessions/{id}/overrides` |
+| `computeAllocation(id)` | POST `/api/sessions/{id}/compute` |
+| `exportSession(id)` | GET `/api/sessions/{id}/export` → `Blob` |
+
+### 12.4 State Management
+
+- **Zustand `sessionStore`**: holds `currentSessionId: string | null` and `setCurrentSessionId`. Determines which view is shown (upload vs. editor).
+- **TanStack Query**: fetches `['session', sessionId]` in `PlanEditor`; invalidated after capacity/epic updates.
+- **Local component state**: `computeResult: ComputeResponse | null` and `isComputing: boolean` in `PlanEditor`.
+
+### 12.5 Component Specifications
+
+**`App.tsx`** — state-based routing: if `currentSessionId` is null, renders `<UploadView>`; otherwise renders `<PlanEditor>`.
+
+**`UploadView`**
+- react-dropzone file zone (accepts `.xlsx` only)
+- Quarter selector (Q1–Q4)
+- Upload button → calls `uploadSession` → on success: sets `currentSessionId`
+- Existing sessions list (from `listSessions()`) with Load button per row
+
+**`PlanEditor`** — orchestrator for the edit session:
+- Fetches `SessionState` via TanStack Query
+- Holds `computeResult` + `isComputing` state
+- `recompute()`: calls `computeAllocation`, updates `computeResult`
+- Triggers `recompute()` once on mount (after session loads)
+- Renders in order: header (filename, quarter, Back button, "Computing…" spinner), `<CapacityEditor>`, `<EpicsTable>`, `<AllocationPreview>`
+- `onCapacityChanged` / `onEpicsChanged` callbacks both call `recompute()`
+
+**`CapacityEditor`** — props: `{ sessionId, capacity, onCapacityChanged }`
+- Two-column form (Engineer | Management): bruto (FTE) + absence (PW/week) for each
+- Debounced 500 ms: calls `updateCapacity` then `onCapacityChanged`
+- Collapsible per-week overrides section (read-only display when `eng_bruto_by_week` / `eng_absence_by_week` are non-empty)
+
+**`EpicsTable`** — props: `{ sessionId, epics, onEpicsChanged, debounceMs? }`
+- AG Grid editable table with columns: priority, epic_description, estimation, budget_bucket, allocation_mode (dropdown: Sprint/Uniform/Gaps), milestone, type, link, delete action
+- "Add Epic" button: appends row with defaults (priority = max+1, estimation = 1.0, allocation_mode = "Sprint")
+- Row drag-to-reorder (`rowDragManaged`): renumbers priorities sequentially after drop
+- Debounced 500 ms (0 ms in tests via `debounceMs` prop): calls `updateEpics` then `onEpicsChanged`
+
+**`AllocationPreview`** — props: `{ sessionId, computeResponse, onOverrideChanged }`
+- Null state: "No allocation computed yet."
+- Validation errors: red banner listing errors
+- Overflow: yellow banner "⚠ Overflow: some epics extend into Q+1"
+- AG Grid table: pinned `label` column + dynamic week columns from `week_labels`
+- `editable` only for week cells in epic rows (not capacity rows, not total/alert rows)
+- Cell styling: `off_estimate = true` → `#FFC7CE` / `#9C0006`; Off Capacity row week = true → same; Budget Bucket row background colours matching Excel output (see LOGIC.md — Conditional Formatting)
+- On week cell edit: debounced 300 ms → `updateOverrides` → `onOverrideChanged`
+
+**`ExportBar`** — props: `{ sessionId, filename, quarter }`
+- "Download Export" button
+- On click: calls `exportSession` → creates object URL → triggers `<a download>` click → revokes URL
+- Shows loading state ("Exporting…") and error message on failure
+
+### 12.6 Frontend Tests to Cover
+
+**`src/api/client.test.ts`**: `uploadSession`, `listSessions`, `getSession`, `deleteSession`, `updateCapacity`, `updateEpics`, `computeAllocation`, `exportSession` — each verifies correct HTTP method, URL, and body via `vi.stubGlobal('fetch', ...)`.
+
+**`src/api/client.error.test.ts`**: error propagation on 4xx/5xx responses.
+
+**`src/store/sessionStore.test.ts`**: initial state null, `setCurrentSessionId` updates and resets.
+
+**`src/components/UploadView.test.tsx`**: renders inputs; shows error when no file selected; calls `uploadSession` with correct args.
+
+**`src/components/CapacityEditor.test.tsx`**: renders all four fields; `updateCapacity` called after debounce; `onCapacityChanged` fires after successful save.
+
+**`src/components/EpicsTable.test.tsx`**: renders N rows (mock ag-grid-react); Add Epic button exists; `updateEpics` called on add; `onEpicsChanged` fires after save. Uses `debounceMs={0}` + `fireEvent.click` to avoid fake-timer/userEvent incompatibility.
+
+**`src/components/AllocationPreview.test.tsx`**: empty state text; row count matches data; overflow banner; validation error banner.
+
+**`src/components/ExportBar.test.tsx`**: renders button; shows metadata; triggers `exportSession` on click; shows error on failure; button disabled during export.
+
+### 12.7 Vite Configuration
+
+- Proxy: `/api` → `http://localhost:8000` (dev only)
+- Vitest: `environment: 'jsdom'`, `globals: true`, `setupFiles: ['./src/test-setup.ts']`
+- `test-setup.ts`: imports `@testing-library/jest-dom`; mocks `global.ResizeObserver` for AG Grid
