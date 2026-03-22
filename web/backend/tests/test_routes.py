@@ -3,13 +3,9 @@ Integration tests for the planzen REST API routes.
 """
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import pytest
-
-sys.path.insert(0, str(Path(__file__).parents[3] / "src"))
-sys.path.insert(0, str(Path(__file__).parents[1]))
 
 
 class TestHealth:

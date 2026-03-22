@@ -3,14 +3,10 @@ Tests for the bridge adapter layer.
 """
 from __future__ import annotations
 
-import sys
 from datetime import date
 from pathlib import Path
 
 import pytest
-
-sys.path.insert(0, str(Path(__file__).parents[3] / "src"))
-sys.path.insert(0, str(Path(__file__).parents[1]))
 
 from planzen.core_logic import CapacityConfig
 from planzen.config import (

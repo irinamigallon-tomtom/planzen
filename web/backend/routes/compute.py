@@ -3,15 +3,10 @@ Compute route: runs the allocation algorithm and returns serialised rows.
 """
 from __future__ import annotations
 
-import sys
 from datetime import timedelta
 from pathlib import Path
 
 from fastapi import APIRouter
-
-_SRC = Path(__file__).parents[3] / "src"
-if str(_SRC) not in sys.path:
-    sys.path.insert(0, str(_SRC))
 
 from planzen.core_logic import build_output_table, get_quarter_dates, validate_allocation
 from planzen.config import FISCAL_QUARTERS

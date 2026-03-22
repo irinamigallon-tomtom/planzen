@@ -4,17 +4,12 @@ Export route: builds output tables and returns a zip of two Excel files.
 from __future__ import annotations
 
 import io
-import sys
 import zipfile
 from datetime import datetime, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
-
-_SRC = Path(__file__).parents[3] / "src"
-if str(_SRC) not in sys.path:
-    sys.path.insert(0, str(_SRC))
 
 from planzen.core_logic import build_output_table, get_quarter_dates
 from planzen.excel_io import write_output, write_output_with_formulas

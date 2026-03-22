@@ -21,6 +21,11 @@ dependencies = [
 [project.scripts]
 planzen = "planzen.cli:main"
 
+[tool.pytest.ini_options]
+# Makes both `planzen` (installed package) and web/backend modules resolvable
+# without any sys.path manipulation in source files.
+pythonpath = ["src", "web/backend"]
+
 [build-system]
 requires = ["uv_build>=0.9.10,<0.10.0"]
 build-backend = "uv_build"

@@ -3,19 +3,8 @@ FastAPI application factory for the planzen web API.
 """
 from __future__ import annotations
 
-import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
-
-# Make src/planzen importable
-_SRC = Path(__file__).parent.parent.parent / "src"
-if str(_SRC) not in sys.path:
-    sys.path.insert(0, str(_SRC))
-
-# Also put web/backend on sys.path so relative imports work
-_BACKEND = Path(__file__).parent
-if str(_BACKEND) not in sys.path:
-    sys.path.insert(0, str(_BACKEND))
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -54,4 +43,7 @@ async def health() -> dict:
 
 if __name__ == "__main__":
     import uvicorn
+    # Run from repo root with:  uv run uvicorn main:app --app-dir web/backend --reload
+    # Or directly:              python web/backend/main.py
+    # Python adds this file's directory to sys.path automatically in both cases.
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

@@ -3,17 +3,11 @@ Routes for session management.
 """
 from __future__ import annotations
 
-import sys
 import tempfile
 from pathlib import Path
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
-
-# Ensure src/ is on the path (also set in main.py, but routes may be imported standalone)
-_SRC = Path(__file__).parents[3] / "src"
-if str(_SRC) not in sys.path:
-    sys.path.insert(0, str(_SRC))
 
 from planzen.excel_io import read_input, validate_input_file
 
