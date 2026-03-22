@@ -224,6 +224,7 @@ OFF_CAPACITY_THRESHOLD = 0.1
 - `build_output_table`: 6 capacity rows at top; epics sorted by priority; `Total Weeks` Q-only; `Off Estimate` bool; `Off Capacity` row last; correct column order
 - Allocation modes: Sprint fills sequentially at ≤ 2.0 PW/week; Uniform spreads evenly; Gaps allows 0-week holes
 - Overflow: triggers when `Σ(Estimation) > Σ(eng_net_for(m))` over quarter; adds 13 columns; `Total Weeks` and `Off Estimate` still use Q-only weeks
+- **Q-first allocation**: high-priority Uniform epic with `estimation/n_weeks` rounding deficit must be fully allocated within Q (via Q top-up pass) even when lower-priority epics cause overflow — `Off Estimate = False`, no overflow spill
 - `validate_allocation`: passes on valid output; returns violations on over-allocation or negative cells
 - `Off Estimate = True` when epic can't be fully allocated in Q; `= False` when exactly allocated
 - Epic with 0 PW estimation → allocated 0, `Off Estimate = False`
@@ -251,3 +252,4 @@ OFF_CAPACITY_THRESHOLD = 0.1
 - `Num Engineers` present but no `Engineer Capacity (Bruto)` → uses `Num Engineers × 1.0`
 - Per-week absence with NaN weeks → defaults to 0 PW for those weeks
 - Per-week bruto with partial weeks → hard validation error
+- Uniform epic with `est % n_weeks ≠ 0` (rounding gap) in overflow scenario → fully allocated in Q, no spill to overflow weeks

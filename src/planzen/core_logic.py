@@ -365,11 +365,13 @@ def _allocate_epics(
         allocations: list[float] = []
         total_allocated = 0.0
         quarter_allocated = 0.0
+        weekly_cap = None if mode == ALLOC_MODE_UNIFORM else MAX_WEEKLY_ALLOC_PW
 
-        for i in range(n_weeks):
+        # ---- Phase 1: Q weeks ----
+        for i in range(n_base_weeks):
             budget_left = round(estimation - total_allocated, 1)
-            if block_quarter_completion and i < n_base_weeks:
-                # Keep this epic unfinished in the primary quarter by at least 0.1 PW.
+            if block_quarter_completion:
+                # Keep this epic unfinished in Q by at least 0.1 PW.
                 quarter_cap = max(round(estimation - 0.1, 1), 0.0)
                 budget_left = min(budget_left, round(quarter_cap - quarter_allocated, 1))
             if budget_left <= 1e-9 or remaining[i] <= 1e-9:
@@ -378,22 +380,49 @@ def _allocate_epics(
                 alloc = round(min(weekly_ideal, remaining[i], budget_left), 1)
                 if enforce_sequential and alloc < 0.1:
                     alloc = round(min(0.1, remaining[i], budget_left), 1)
-
             allocations.append(alloc)
             remaining[i] = round(remaining[i] - alloc, 1)
             total_allocated = round(total_allocated + alloc, 1)
-            if i < n_base_weeks:
-                quarter_allocated = round(quarter_allocated + alloc, 1)
+            quarter_allocated = round(quarter_allocated + alloc, 1)
 
-        total_allocated = _top_up_epic_allocations(
-            estimation=estimation,
-            allocations=allocations,
-            remaining=remaining,
-            total_allocated=total_allocated,
-            n_base_weeks=n_base_weeks,
-            weekly_cap=(None if mode == ALLOC_MODE_UNIFORM else MAX_WEEKLY_ALLOC_PW),
-            skip_primary_quarter_top_up=block_quarter_completion,
-        )
+        # ---- Top-up Q weeks before touching overflow ----
+        if not block_quarter_completion:
+            total_allocated = _top_up_epic_allocations_in_window(
+                estimation=estimation,
+                allocations=allocations,
+                remaining=remaining,
+                total_allocated=total_allocated,
+                start_idx=0,
+                end_idx=n_base_weeks,
+                weekly_cap=weekly_cap,
+            )
+        quarter_allocated = round(sum(allocations), 1)  # all slots are Q at this point
+
+        # ---- Phase 2: overflow weeks (if budget remains) ----
+        for i in range(n_base_weeks, n_weeks):
+            budget_left = round(estimation - total_allocated, 1)
+            if budget_left <= 1e-9 or remaining[i] <= 1e-9:
+                alloc = 0.0
+            else:
+                alloc = round(min(weekly_ideal, remaining[i], budget_left), 1)
+                if enforce_sequential and alloc < 0.1:
+                    alloc = round(min(0.1, remaining[i], budget_left), 1)
+            allocations.append(alloc)
+            remaining[i] = round(remaining[i] - alloc, 1)
+            total_allocated = round(total_allocated + alloc, 1)
+
+        # ---- Top-up overflow weeks if still needed ----
+        if estimation - total_allocated > _ESTIMATE_TOLERANCE_PW and n_base_weeks < n_weeks:
+            total_allocated = _top_up_epic_allocations_in_window(
+                estimation=estimation,
+                allocations=allocations,
+                remaining=remaining,
+                total_allocated=total_allocated,
+                start_idx=n_base_weeks,
+                end_idx=n_weeks,
+                weekly_cap=weekly_cap,
+            )
+
         quarter_allocated = round(sum(allocations[:n_base_weeks]), 1)
         if estimation - quarter_allocated > _ESTIMATE_TOLERANCE_PW:
             unfinished_priorities_in_quarter.add(priority)
@@ -412,45 +441,6 @@ def _allocate_epics(
         rows.append(row)
 
     return rows
-
-
-def _top_up_epic_allocations(
-    estimation: float,
-    allocations: list[float],
-    remaining: list[float],
-    total_allocated: float,
-    n_base_weeks: int,
-    weekly_cap: float | None,
-    skip_primary_quarter_top_up: bool,
-) -> float:
-    """Top up an epic to estimation tolerance before lower priorities are processed."""
-    n_weeks = len(allocations)
-    base_limit = min(n_base_weeks, n_weeks)
-
-    # Fill the primary quarter first unless priority guard explicitly blocks completion there.
-    if not skip_primary_quarter_top_up:
-        total_allocated = _top_up_epic_allocations_in_window(
-            estimation=estimation,
-            allocations=allocations,
-            remaining=remaining,
-            total_allocated=total_allocated,
-            start_idx=0,
-            end_idx=base_limit,
-            weekly_cap=weekly_cap,
-        )
-    # If quarter capacity is exhausted and overflow weeks exist, continue there.
-    if estimation - total_allocated > _ESTIMATE_TOLERANCE_PW and base_limit < n_weeks:
-        total_allocated = _top_up_epic_allocations_in_window(
-            estimation=estimation,
-            allocations=allocations,
-            remaining=remaining,
-            total_allocated=total_allocated,
-            start_idx=base_limit,
-            end_idx=n_weeks,
-            weekly_cap=weekly_cap,
-        )
-
-    return total_allocated
 
 
 def _top_up_epic_allocations_in_window(

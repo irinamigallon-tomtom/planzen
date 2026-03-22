@@ -142,12 +142,27 @@ The `Allocation Mode` column (optional per epic) controls how capacity is spread
 | Mode | Behaviour |
 |---|---|
 | **Sprint** (default) | Claim up to `MAX_WEEKLY_ALLOC_PW = 2.0` PW per week; sequential. |
-| **Uniform** | Spread `Estimation / n_weeks` evenly across all weeks; sequential. |
+| **Uniform** | Spread `Estimation / n_base_weeks` evenly across all weeks; sequential. |
 | **Gaps** | Same rate as Sprint (`MAX_WEEKLY_ALLOC_PW`) but without the sequential minimum — a week may receive 0 even when capacity > 0. |
 
 `MAX_WEEKLY_ALLOC_PW = 2.0` is configurable in `config.py` and represents at most a tandem of 2 people working full-time on one thing per week.
 
 **Sequential constraint** (Sprint and Uniform): once an epic starts, every subsequent week with available capacity must receive ≥ 0.1 PW — a `0` is only allowed when that week is fully consumed by higher-priority epics.
+
+### Two-phase allocation per epic
+
+Each epic is allocated in two explicit phases, even when overflow columns are present:
+
+1. **Q phase** — allocate across the 13 requested-quarter weeks using the mode's `weekly_ideal`.
+2. **Q top-up** — a second pass over Q weeks fills any remaining deficit (due to rounding or variable capacity) before overflow weeks are touched. Skipped if `block_quarter_completion` is active (see Priority Guard below).
+3. **Overflow phase** — only if budget remains after Q top-up, allocate into overflow weeks.
+4. **Overflow top-up** — fills any residual deficit in overflow weeks.
+
+This ordering guarantees that a high-priority epic is never forced into overflow simply because its `weekly_ideal` rounds down (e.g. Uniform with `est=4`, `13 weeks` → `weekly_ideal=0.3`, main pass yields 3.9 PW; the Q top-up recovers the 0.1).
+
+### Priority Guard
+
+When a higher-priority epic is unfinished in the primary quarter (i.e. its `Total Weeks < Estimation - 0.05`), lower-priority epics are allowed to *start* in Q but are capped so they cannot *complete* in Q. This ensures the higher-priority work is not invisible — it appears as `Off Estimate = True` — and lower priorities are pushed into overflow rather than stealing remaining Q capacity.
 
 ---
 

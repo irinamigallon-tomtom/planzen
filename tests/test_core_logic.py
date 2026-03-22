@@ -579,3 +579,57 @@ def test_no_overflow_when_estimation_fits() -> None:
     df = build_output_table(tiny, CAPACITY, q1_start, q1_end)
     week_cols = _week_cols(df)
     assert len(week_cols) == 13
+
+
+def test_high_priority_uniform_epic_fully_allocated_in_Q_when_overflow_occurs() -> None:
+    """
+    Regression: a high-priority Uniform epic must be fully allocated within Q
+    (Total Weeks == Estimation) even when lower-priority epics cause overflow.
+
+    Bug: with the old single-pass loop, the Uniform mode's small weekly_ideal
+    left a residual that was placed in the first overflow week during the main
+    loop rather than being topped-up within Q first.
+    """
+    q2_start, q2_end = FISCAL_QUARTERS[2]
+    # Prio-0 Uniform epic: est=4, 13 weeks → weekly_ideal=0.3, 13×0.3=3.9 < 4
+    # → top-up needed within Q.
+    # Prio-1 Sprint epics: large estimation → forces overflow.
+    epics = pd.DataFrame([
+        {
+            "Epic Description": "High Prio Uniform", "Estimation": 4.0,
+            "Budget Bucket": "Customer Support", "Priority": 0,
+            "Allocation Mode": "Uniform",
+        },
+        {
+            "Epic Description": "Low Prio Sprint A", "Estimation": 50.0,
+            "Budget Bucket": "Core", "Priority": 1,
+            "Allocation Mode": "Sprint",
+        },
+        {
+            "Epic Description": "Low Prio Sprint B", "Estimation": 50.0,
+            "Budget Bucket": "Core", "Priority": 2,
+            "Allocation Mode": "Sprint",
+        },
+    ])
+    capacity = CapacityConfig(num_engineers=5, num_managers=0)
+    df = build_output_table(epics, capacity, q2_start, q2_end)
+
+    # Overflow should have been triggered by the large low-prio epics
+    week_cols = _week_cols(df)
+    assert len(week_cols) == 26, "Expected overflow (26 week columns)"
+
+    high_prio_row = df[df[OUT_COL_EPIC] == "High Prio Uniform"].iloc[0]
+    assert high_prio_row[OUT_COL_TOTAL_WEEKS] == pytest.approx(4.0, abs=0.05), (
+        f"High-prio Uniform epic got Total Weeks={high_prio_row[OUT_COL_TOTAL_WEEKS]:.1f}, "
+        f"expected 4.0. Bug: top-up went to overflow week instead of within Q."
+    )
+    assert high_prio_row[OUT_COL_OFF_ESTIMATE] is False, (
+        "High-prio Uniform epic should be Off Estimate=False when capacity exists in Q"
+    )
+    # All allocation should be within Q weeks (no overflow spill)
+    q_sum = sum(float(high_prio_row[w]) for w in week_cols[:13])
+    overflow_sum = sum(float(high_prio_row[w]) for w in week_cols[13:])
+    assert overflow_sum == pytest.approx(0.0, abs=0.05), (
+        f"High-prio Uniform epic should not spill into overflow weeks, "
+        f"but got {overflow_sum:.1f} PW in overflow."
+    )
