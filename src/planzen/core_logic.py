@@ -237,7 +237,7 @@ def build_output_table(
     week_labels = [d.strftime("%b.%d") for d in mondays]
 
     # --- capacity header rows ---
-    capacity_rows = _build_capacity_rows(capacity, mondays, week_labels)
+    capacity_rows = _build_capacity_rows(capacity, mondays, week_labels, n_base_weeks)
 
     # --- epic rows with allocation per mode ---
     epic_rows = _allocate_epics(epics_df, capacity, mondays, week_labels, n_base_weeks)
@@ -274,7 +274,7 @@ def build_output_table(
 
 
 def _build_capacity_rows(
-    capacity: CapacityConfig, mondays: list[date], week_labels: list[str]
+    capacity: CapacityConfig, mondays: list[date], week_labels: list[str], n_base_weeks: int
 ) -> list[dict]:
     def _row(label: str, value_fn) -> dict:
         base: dict = {
@@ -287,7 +287,9 @@ def _build_capacity_rows(
         }
         week_values = {w: value_fn(m) for w, m in zip(week_labels, mondays)}
         base.update(week_values)
-        base[OUT_COL_TOTAL_WEEKS] = round(sum(week_values.values()), 1)
+        # Total Weeks sums only the requested quarter (first n_base_weeks columns)
+        q_values = [week_values[w] for w in week_labels[:n_base_weeks]]
+        base[OUT_COL_TOTAL_WEEKS] = round(sum(q_values), 1)
         return base
 
     return [
@@ -396,7 +398,7 @@ def _allocate_epics(
         if estimation - quarter_allocated > _ESTIMATE_TOLERANCE_PW:
             unfinished_priorities_in_quarter.add(priority)
 
-        total_weeks = round(sum(allocations), 1)
+        total_weeks = round(sum(allocations[:n_base_weeks]), 1)
         off_estimate = abs(round(total_weeks - estimation, 10)) > _ESTIMATE_TOLERANCE_PW
         row: dict = {
             OUT_COL_BUDGET_BUCKET: epic[COL_BUDGET_BUCKET],

@@ -275,9 +275,13 @@ def test_overflow_scenario_is_valid() -> None:
     assert violations == [], f"Unexpected violations: {violations}"
 
     week_cols = _week_cols(df)
+    n_base = len(_week_mondays(df))          # Q-only weeks
     epic_row = df[df[OUT_COL_EPIC] == "Huge Epic"].iloc[0]
     assert epic_row[OUT_COL_TOTAL_WEEKS] <= 999.0
-    assert epic_row[OUT_COL_TOTAL_WEEKS] <= capacity.eng_net * len(week_cols) + 1e-9
+    # Total Weeks is Q-only; overflow weeks are excluded
+    assert epic_row[OUT_COL_TOTAL_WEEKS] <= capacity.eng_net * n_base + 1e-9
+    # Epic can't finish in Q → Off Estimate is True
+    assert epic_row[OUT_COL_OFF_ESTIMATE] is True
 
 
 # ---------------------------------------------------------------------------

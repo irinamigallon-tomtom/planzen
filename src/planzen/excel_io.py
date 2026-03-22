@@ -618,14 +618,16 @@ def _apply_conditional_formatting(ws, col_names: list[str], labels: list[object]
         )
 
 
-def write_output_with_formulas(df: pd.DataFrame, path: Path) -> None:
+def write_output_with_formulas(df: pd.DataFrame, path: Path, n_base_weeks: int) -> None:
     """
     Write the output allocation table to an Excel file with formulas for
     calculated fields:
 
     - Engineer Net Capacity row: ``=<bruto_cell>-<absence_cell>`` per week
     - Management Net Capacity row: same pattern
-    - Total Weeks column (epic rows): ``=SUM(<first_week>:<last_week>)``
+    - Total Weeks column (capacity + epic rows): ``=SUM(<first_week>:<last_Q_week>)``
+      where ``last_Q_week`` is the last column of the requested quarter only
+      (overflow columns are excluded from the Total Weeks sum).
     - Weekly Allocation row: ``=SUM(<first_epic>:<last_epic>)`` per week
     """
     # Write values first, then reopen to replace calculated cells with formulas.
@@ -658,7 +660,7 @@ def write_output_with_formulas(df: pd.DataFrame, path: Path) -> None:
         i + 2 for i, lbl in enumerate(labels) if lbl not in _CAPACITY_LABELS
     ]
     first_week_letter = get_column_letter(week_col_indices[0])
-    last_week_letter  = get_column_letter(week_col_indices[-1])
+    last_q_week_letter = get_column_letter(week_col_indices[n_base_weeks - 1])
     first_epic_row = epic_excel_rows[0]
     last_epic_row  = epic_excel_rows[-1]
 
@@ -672,16 +674,16 @@ def write_output_with_formulas(df: pd.DataFrame, path: Path) -> None:
         cl = get_column_letter(ci)
         ws.cell(r_mgmt_net, ci).value = f"={cl}{r_mgmt_cap}-{cl}{r_mgmt_absence}"
 
-    # Total Weeks for each epic: =SUM(<first_week_col><row>:<last_week_col><row>)
+    # Total Weeks for each epic: =SUM(<first_week_col><row>:<last_Q_week_col><row>)
     for er in epic_excel_rows:
         ws.cell(er, total_weeks_col_idx).value = (
-            f"=SUM({first_week_letter}{er}:{last_week_letter}{er})"
+            f"=SUM({first_week_letter}{er}:{last_q_week_letter}{er})"
         )
 
-    # Total Weeks for capacity header rows: same SUM formula
+    # Total Weeks for capacity header rows: same SUM — Q-only
     for r_cap in (r_eng_bruto, r_eng_absence, r_eng_net, r_mgmt_cap, r_mgmt_absence, r_mgmt_net):
         ws.cell(r_cap, total_weeks_col_idx).value = (
-            f"=SUM({first_week_letter}{r_cap}:{last_week_letter}{r_cap})"
+            f"=SUM({first_week_letter}{r_cap}:{last_q_week_letter}{r_cap})"
         )
 
     # Weekly Allocation row: =SUM(<col><first_epic>:<col><last_epic>)

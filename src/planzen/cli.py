@@ -75,7 +75,7 @@ def run(
     formulas_file = output_dir / f"{stem}_formulas.xlsx"
 
     write_output(output_df, values_path)
-    write_output_with_formulas(output_df, formulas_file)
+    write_output_with_formulas(output_df, formulas_file, len(primary_mondays))
     typer.echo(f"Values output written to   {values_path}")
     typer.echo(f"Formulas output written to {formulas_file}")
 

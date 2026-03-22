@@ -6,7 +6,7 @@
 | Absence input (`Engineer Absence (days)`, `Manager Absence (days)`) | **working days** — total for the selected quarter |
 | Epic `Estimation` | **Person-Weeks (PW)** — total effort for the Epic|
 | All output week columns (capacity rows and epic rows) | **PW / week** |
-| `Total Weeks` column | **PW** — sum across all 13 weeks |
+| `Total Weeks` column | **PW** — sum of the requested quarter's weeks only (first 13 of up to 26 columns) |
 
 1 PW = 1 person working a full week. Cell values are rounded to **0.1 PW** increments.
 
@@ -20,14 +20,29 @@ The user provides a single `.xlsx` file with one sheet. Team config rows appear 
 
 Config rows are identified by their label in the **`Budget Bucket`** column. The `Estimation` column holds the numeric value. `Epic Description` should be left blank for these rows. Matching is case-insensitive and strips parenthetical suffixes (e.g. `(Bruto)`, `(days)`).
 
+If `Budget Bucket` has no recognised label, the **`Type`** column is checked as a fallback to identify config rows.
+
 | `Budget Bucket` label | `Estimation` value | Unit | Required? |
 |---|---|---|---|
-| `Engineer Capacity (Bruto)` | e.g. `5.0` | FTE | ✅ |
-| `Management Capacity (Bruto)` | e.g. `2.0` | FTE | ✅ |
+| `Engineer Capacity (Bruto)` | e.g. `5.0` | FTE | ✅ (or use `Num Engineers`) |
+| `Num Engineers` | e.g. `5` | FTE | alternative to `Engineer Capacity (Bruto)` |
+| `Management Capacity (Bruto)` | e.g. `2.0` | FTE | optional |
 | `Engineer Absence` | e.g. `10` | working days (quarter total) | optional |
 | `Management Absence` | e.g. `4` | working days (quarter total) | optional |
 
+**Engineer capacity precedence**: `Engineer Capacity (Bruto)` is used when present and has an `Estimation` value; otherwise `Num Engineers × 1.0 PW/FTE` is used. Both are checked; bruto takes precedence.
+
+**Management capacity default**: when `Management Capacity (Bruto)` is absent, management bruto defaults to **1.0 PW/week**.
+
 When absence is omitted the default formula applies: **37 days/year** (30 vacation + 7 sick) ÷ 52 weeks ÷ 5 days ≈ **0.142 PW/person/week**.
+
+### Per-week capacity mode
+
+When the input file contains week columns formatted as `D.M.` (e.g. `30.3.`, `6.4.`) that correspond to the quarter's Mondays, per-week capacity values are read directly from those columns.
+
+**`Engineer Capacity (Bruto)` row** — if values are present in week columns, they are used as the per-week bruto (PW/week). This is **all-or-nothing**: all 13 Q-weeks must have values, or none. A partial set (some weeks present, some absent) is a **hard error**. When per-week values are present, the scalar `Estimation` on that row is ignored.
+
+**`Engineer Absence` row** — if values are present in week columns, they are used as the per-week absence (PW/week, not days). Missing or NaN weeks default to **0 PW** (lenient). When any per-week absence values are present, the scalar `Estimation` on that row is ignored.
 
 ### Epic columns
 
@@ -57,12 +72,14 @@ Column order does not matter. Column names are matched case-insensitively. Any a
 
 | Row | Formula | Default example (5 eng, 2 mgr) |
 |---|---|---|
-| Engineer Capacity (Bruto) | `E × 1 PW/week` | 5.0 |
-| Engineer Absence | `absence_days ÷ 5 ÷ n_weeks` OR `E × 0.142` | 0.7 |
+| Engineer Capacity (Bruto) | `E × 1 PW/week` (or per-week values from input) | 5.0 |
+| Engineer Absence | `absence_days ÷ 5 ÷ n_weeks` OR `E × 0.142` (or per-week values from input) | 0.7 |
 | Engineer Net Capacity | Bruto − Absence | 4.3 |
-| Management Capacity (Bruto) | `M × 1 PW/week` | 2.0 |
+| Management Capacity (Bruto) | `M × 1 PW/week` (default 1.0 when absent) | 2.0 |
 | Management Absence | `absence_days ÷ 5 ÷ n_weeks` OR `M × 0.142` | 0.3 |
 | Management Net Capacity | Bruto Capacity − Absence | 1.7 |
+
+The `Total Weeks` column is populated for **all 6 capacity header rows** (not just epic rows). Its value sums only the requested quarter's weeks (columns 1–13), even when overflow columns are present. In the formulas file: `=SUM(first_week:last_Q_week)`.
 
 ### Epic rows (sorted by Priority ascending)
 
@@ -72,8 +89,8 @@ Column order does not matter. Column names are matched case-insensitively. Any a
 | `Epic Description` | — | Epic name |
 | `Priority` | — | From input |
 | `Estimation` | PW (total) | Total effort budget from input |
-| `Total Weeks` | PW (total for the quarter) | Sum of all weekly allocations |
-| `Off Estimate` | bool | `True` if `abs(Total Weeks − Estimation) > 0.05` — epic was not fully allocated. Highlighted red by conditional formatting when `TRUE`. |
+| `Total Weeks` | PW (Q-only total) | Sum of weekly allocations for the requested quarter only (overflow weeks excluded) |
+| `Off Estimate` | bool | `True` if `abs(Total Weeks − Estimation) > 0.05` — epic was not fully allocated within the quarter. Highlighted red by conditional formatting when `TRUE`. |
 | `Mon.DD` week columns | PW/week | Capacity allocated to this epic that week |
 
 ### Total row
@@ -99,7 +116,7 @@ Both output files (values and formulas) include Excel formula-based conditional 
 
 ### Budget Bucket row colours
 
-When a row's `Budget Bucket` matches one of the values below, the **entire row** receives that background colour. The rule is formula-based (`=$A2="<label>"`) so it survives manual edits.
+When a row's `Budget Bucket` matches one of the values below, the **entire row** receives that background colour. The rule is formula-based (`=$<budget_bucket_col>2="<label>"`, column anchored) so it survives manual edits.
 
 | Budget Bucket | Colour |
 |---|---|
@@ -136,7 +153,7 @@ The `Allocation Mode` column (optional per epic) controls how capacity is spread
 
 ## Overflow
 
-Overflow is automatic: when `Σ(Estimation) > Engineer Net Capacity × 13`, the allocation window extends into Q+1 (13 additional Mondays). Without overflow, lower-priority epics would be partially allocated and show `Total Weeks < Estimation`. The CLI prints an informational message when overflow occurs.
+Overflow is automatic: when `Σ(Estimation) > Σ(eng_net_for(week) for week in quarter)` — i.e. the sum of per-week net capacities across the quarter (which may vary week by week) — the allocation window extends into Q+1 (13 additional Mondays). Without overflow, lower-priority epics would be partially allocated and show `Total Weeks < Estimation`. The CLI prints an informational message when overflow occurs.
 
 ---
 

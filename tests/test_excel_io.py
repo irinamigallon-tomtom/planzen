@@ -89,7 +89,8 @@ def values_file(tmp_path: Path, output_df: pd.DataFrame) -> Path:
 @pytest.fixture()
 def formulas_file(tmp_path: Path, output_df: pd.DataFrame) -> Path:
     p = tmp_path / "output_formulas.xlsx"
-    write_output_with_formulas(output_df, p)
+    n_base = len([c for c in output_df.columns if c not in {"Budget Bucket", "Epic Description", "Priority", "Estimation", "Total Weeks", "Off Estimate"}])
+    write_output_with_formulas(output_df, p, n_base)
     return p
 
 
@@ -693,7 +694,8 @@ def test_weekly_allocation_sum_spans_exact_epic_rows(n_epics: int, tmp_path: Pat
     """
     df = build_output_table(_make_epics(n_epics), _CAPACITY, _START, _END)
     p = tmp_path / f"out_{n_epics}.xlsx"
-    write_output_with_formulas(df, p)
+    n_base = len([c for c in df.columns if c not in {"Budget Bucket", "Epic Description", "Priority", "Estimation", "Total Weeks", "Off Estimate"}])
+    write_output_with_formulas(df, p, n_base)
 
     wb = openpyxl.load_workbook(p, data_only=False)
     ws = wb.active
@@ -730,7 +732,8 @@ def test_total_weeks_sum_references_own_row(n_epics: int, tmp_path: Path) -> Non
     """
     df = build_output_table(_make_epics(n_epics), _CAPACITY, _START, _END)
     p = tmp_path / f"out_{n_epics}.xlsx"
-    write_output_with_formulas(df, p)
+    n_base = len([c for c in df.columns if c not in {"Budget Bucket", "Epic Description", "Priority", "Estimation", "Total Weeks", "Off Estimate"}])
+    write_output_with_formulas(df, p, n_base)
 
     wb = openpyxl.load_workbook(p, data_only=False)
     ws = wb.active
@@ -761,7 +764,8 @@ def test_net_capacity_formulas_reference_fixed_header_rows(n_epics: int, tmp_pat
     """
     df = build_output_table(_make_epics(n_epics), _CAPACITY, _START, _END)
     p = tmp_path / f"out_{n_epics}.xlsx"
-    write_output_with_formulas(df, p)
+    n_base = len([c for c in df.columns if c not in {"Budget Bucket", "Epic Description", "Priority", "Estimation", "Total Weeks", "Off Estimate"}])
+    write_output_with_formulas(df, p, n_base)
 
     wb = openpyxl.load_workbook(p, data_only=False)
     ws = wb.active
