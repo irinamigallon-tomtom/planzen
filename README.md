@@ -1,21 +1,6 @@
 # planzen
 
-planzen is a small office automation tool that processes tabular data containing quarterly plans (based on weekly capacity allocation to different Epics) and exports a review-friendly Excel file.
-
----
-
-## Units at a glance
-
-| Context | Value | Unit |
-|---|---|---|
-| Team headcount input | e.g. `5`, `2.5` | **FTE** (full-time equivalents; fractions allowed) |
-| Absence input | e.g. `10`, `4` | **working days** — total for the selected quarter |
-| Epic effort estimate | e.g. `80.0` | **Person-Weeks (PW)** — total effort for the epic |
-| Output — weekly capacity cells | e.g. `5.0`, `4.3` | **PW / week** — constant for every week column |
-| Output — epic allocation cells | e.g. `1.5` | **PW / week** — capacity assigned to that epic that week |
-| Output — Total Weeks column | e.g. `55.9` | **PW** — sum across all 13 weeks of the quarter |
-
-1 PW = 1 person working a full week.  Values are rounded to 0.1 PW increments.
+planzen reads a quarterly engineering plan from an Excel file, allocates weekly capacity to Epics, and writes two review-friendly Excel output files — one with plain values, one with auditable formulas.
 
 ---
 
@@ -35,182 +20,91 @@ uv sync
 uv run planzen INPUT_FILE -q QUARTER [-o OUTPUT_DIR]
 ```
 
-Two output files are always written to `OUTPUT_DIR`. No `OUTPUT_FILE` argument is needed — file names are derived from the input name plus a timestamp.
-
-### Options
-
 | Option | Required | Default | Description |
 |---|---|---|---|
-| `-q`, `--quarter` | yes | — | Fiscal quarter (1–4). Determines the 13-week allocation window automatically. |
-| `-o`, `--output-dir` | no | `./output/` | Directory for output files. Created automatically if it does not exist. |
+| `INPUT_FILE` | ✅ | — | Path to the input `.xlsx` file |
+| `-q / --quarter` | ✅ | — | Fiscal quarter (1–4) |
+| `-o / --output-dir` | no | `./output/` | Output directory (created if absent) |
 
+Two files are written per run:
+- `{stem}_{YYMMDDhhmm}.xlsx` — values
+- `{stem}_{YYMMDDhhmm}_formulas.xlsx` — formulas
 
-### Fiscal quarters
+### Fiscal quarters (2026)
 
-| Quarter | Start Monday | End Monday | Weeks |
-|---|---|---|---|
-| Q1 | 2025-12-29 | 2026-03-23 | 13 |
-| Q2 | 2026-03-30 | 2026-06-22 | 13 |
-| Q3 | 2026-06-29 | 2026-09-21 | 13 |
-| Q4 | 2026-09-28 | 2026-12-21 | 13 |
-
-### Example
-
-```bash
-uv run planzen data/examples/input_example.xlsx -q 2
-# writes: output/input_example_202603211430.xlsx
-#         output/input_example_202603211430_formulas.xlsx
-
-uv run planzen data/examples/input_example.xlsx -q 2 -o /tmp/review
-# writes: /tmp/review/input_example_202603211430.xlsx
-#         /tmp/review/input_example_202603211430_formulas.xlsx
-```
+| Q | Start | End |
+|---|---|---|
+| 1 | 2025-12-29 | 2026-03-23 |
+| 2 | 2026-03-30 | 2026-06-22 |
+| 3 | 2026-06-29 | 2026-09-21 |
+| 4 | 2026-09-28 | 2026-12-21 |
 
 ---
 
 ## Input format
 
-A single `.xlsx` file with one sheet. The sheet starts with **team config rows**, followed by **one row per Epic**. Column order and extra columns do not matter.
+A single `.xlsx` file with one sheet. **Team config rows** appear first, followed by **epic rows**. Column order does not matter.
 
-### Team config rows (top of the sheet)
+### Team config rows
 
-Identified by their value in the `Epic Description` column. The `Estimation` column holds the numeric value. All other columns may be left blank.
+Identified by their value in the **`Budget Bucket`** column (case-insensitive, parenthetical suffixes stripped). The `Estimation` column holds the numeric value.
 
-| `Epic Description` label | `Estimation` value | Unit | Required? |
+| `Budget Bucket` label | Value | Unit | Required |
 |---|---|---|---|
-| `Engineer Bruto Capacity` | e.g. `5` or `2.5` | **FTE** | ✅ |
-| `Manager Bruto Capacity` | e.g. `2` or `0.5` | **FTE** | ✅ |
-| `Engineer Absence (days)` | e.g. `10` | **working days** — total for the quarter | optional |
-| `Manager Absence (days)` | e.g. `4` | **working days** — total for the quarter | optional |
+| `Engineer Capacity (Bruto)` or `Num Engineers` | e.g. `5.0` | FTE | ✅ one of these |
+| `Management Capacity (Bruto)` | e.g. `2.0` | FTE | optional (default: 1.0 PW/week) |
+| `Engineer Absence` | e.g. `10` | working days (quarter total) | optional |
+| `Management Absence` | e.g. `4` | working days (quarter total) | optional |
 
-When absence is omitted the tool falls back to **37 days/year** (30 vacation + 7 sick), pro-rated to the quarter: `37 / 52 weeks / 5 days × FTE` ≈ 0.142 PW/person/week.
+When absence is omitted the tool defaults to **37 days/year** ÷ 52 ÷ 5 ≈ 0.142 PW/person/week.
 
-### Epic columns (order does not matter; extra columns are preserved)
+The input may also include **per-week capacity columns** in `D.M.` format (e.g. `30.3.`, `6.4.`) — see `LOGIC.md` for details.
 
-| Column | Required | Type | Unit | Description |
-|---|---|---|---|---|
-| `Epic Description` | ✅ | text | — | Name / description of the Epic |
-| `Estimation` | ✅ | float | **PW** (total effort) | Total capacity to allocate across all weeks |
-| `Budget Bucket` | ✅ | text | — | Cost/budget category (e.g. Platform, Analytics) |
-| `Link` | ✅ | text | — | URL to the Epic in your tracking tool |
-| `Priority` | ✅ | integer | — | Priority rank — lower number = higher priority; controls allocation order |
-| `Type` | optional | text | — | Epic type (e.g. Feature, Improvement) |
-| `Milestone` | optional | text | — | Target milestone (e.g. Q1, Q2) |
+### Epic columns
 
-Any additional columns are preserved without error.
+| Column | Required |
+|---|---|
+| `Epic Description` | ✅ |
+| `Estimation` (PW total) | ✅ |
+| `Budget Bucket` | ✅ |
+| `Priority` (integer, lower = higher priority) | ✅ |
+| `Link` | optional |
+| `Allocation Mode` (`Sprint` / `Uniform` / `Gaps`) | optional |
+| `Type`, `Milestone` | optional |
 
-### Example input (`data/examples/input_example.xlsx`)
-
-| Epic Description | Estimation | Budget Bucket | Link | Priority | Milestone |
-|---|---|---|---|---|---|
-| Engineer Bruto Capacity | **5.0 FTE** | | | | |
-| Manager Bruto Capacity | **2.0 FTE** | | | | |
-| Engineer Absence (days) | **10 days** | | | | |
-| Alpha Search | 8.0 PW | Core | …/1 | 1 | Q2 |
-| Beta Platform | 12.0 PW | Platform | …/2 | 2 | Q2 |
-| Gamma Onboarding | 5.0 PW | Growth | …/3 | 3 | Q2 |
-| Delta Infra | 7.0 PW | Platform | …/4 | 4 | Q2 |
-| Epsilon Compliance | 3.0 PW | Core | …/5 | 5 | Q2 |
+Extra columns are preserved without error.
 
 ---
 
 ## Output format
 
-A single run produces **two files**:
+### Structure
 
-| File | Contents |
+| Section | Description |
 |---|---|
-| `{input_stem}_{YYYYMMddhhmm}.xlsx` | All cells are numeric values (PW) |
-| `{input_stem}_{YYYYMMddhhmm}_formulas.xlsx` | Calculated cells contain Excel formulas for auditability |
+| 6 capacity header rows | Engineer and management bruto, absence, and net capacity (PW/week per week) |
+| Epic rows (sorted by Priority) | Weekly allocation per epic, `Total Weeks` (Q-only sum), `Off Estimate` flag |
+| `Weekly Allocation` total row | Sum of all epic allocations per week |
+| `Off Capacity` alert row | `True` per week when weekly total diverges from net capacity by > 0.1 PW |
 
-Cells replaced by formulas in the formulas file:
+Week columns are labelled `Mon.DD` (e.g. `Mar.30`, `Jan.05`). Normal quarters have 13 week columns; overflow adds 13 more.
 
-| Cell / range | Formula | Example |
-|---|---|---|
-| Engineer Net Capacity (each week col) | `=<bruto> - <absence>` | `=F2-F3` |
-| Management Net Capacity (each week col) | `=<mgmt_cap> - <mgmt_absence>` | `=F5-F6` |
-| Total Weeks (each epic row) | `=SUM(<first_week_col>:<last_week_col>)` | `=SUM(G8:S8)` |
-| Weekly Allocation row (each week col) | `=SUM(<first_epic_row>:<last_epic_row>)` | `=SUM(G8:G14)` |
-| Off Estimate (each epic row) | `=ABS(<total_weeks>-<estimation>)>0.05` | `=ABS(F8-E8)>0.05` |
-| Off Capacity row (each week col) | `=ABS(<weekly_alloc>-<eng_net>)>0.1` | `=ABS(G15-G4)>0.1` |
+### Units
 
-### Output structure
-
-**6 capacity header rows** — constant across all week columns (unit: PW/week):
-
-| Row label | Formula | Example (5 eng, 10 absence days, Q2) |
-|---|---|---|
-| `Engineer Capacity (Bruto)` | `E FTE × 1 PW/week` | `5.0 PW/week` |
-| `Engineer Absence` | `absence_days ÷ 5 ÷ 13 weeks` | `0.2 PW/week` |
-| `Engineer Net Capacity` | Bruto − Absence | `4.8 PW/week` |
-| `Management Capacity` | `M FTE × 1 PW/week` | `2.0 PW/week` |
-| `Management Absence` | `37 days/yr default ÷ 52 ÷ 5 × M` | `0.3 PW/week` |
-| `Management Net Capacity` | Capacity − Absence | `1.7 PW/week` |
-
-**One row per Epic** (sorted by Priority ascending):
-
-| Column | Unit | Description |
-|---|---|---|
-| `Budget Bucket` | — | From input |
-| `Epic / Capacity Metric` | — | Epic name |
-| `Priority` | — | From input |
-| `Estimation` | PW (total) | Total effort budget from input |
-| `Total Weeks` | PW (total) | Sum of all weekly allocations for this quarter |
-| `Off Estimate` | bool | `True` if epic was not fully allocated (`abs(Total Weeks − Estimation) > 0.05`). Highlighted **red** when `TRUE`. |
-| `Mon.DD` … | PW/week | Capacity allocated to this epic that week |
-
-**Total row** — `Weekly Allocation`: sum of all epic allocations per week (PW/week).
-
-**Alert row** — `Off Capacity`: per week column, `True` if `abs(Weekly Allocation − Engineer Net Capacity) > 0.1`. Highlighted **red** when `TRUE`.
-
-### Allocation rules
-
-- Epics allocated in Priority order (lower number first); higher-priority epics claim capacity before lower ones
-- **Sequential**: once an epic starts receiving capacity, every subsequent week with available capacity also gets ≥ 0.1 PW — a 0 is only allowed when the week is fully consumed by higher-priority epics
-- Per-epic total ≤ `Estimation`; per-week total ≤ `Engineer Net Capacity`
-- Cell granularity: 0.1 PW increments
-- **Allocation Mode** column (optional per epic): `Sprint` (default when blank), `Uniform`, or `Gaps` — see `LOGIC.md` for details
-- Overflow is expected and visible: if total estimations exceed quarter capacity, lower-priority epics show `Total Weeks < Estimation`
-
-### Example output (Q2, 5 engineers, 10 absence days, 2 managers — `data/examples/output_example.xlsx`)
-
-| Budget Bucket | Epic / Capacity Metric | Priority | Estimation | Total Weeks | Mar.30 | Apr.06 | … | Jun.22 |
-|---|---|---|---|---|---|---|---|---|
-| | Engineer Capacity (Bruto) | | | | 5.0 | 5.0 | … | 5.0 |
-| | Engineer Absence | | | | 0.2 | 0.2 | … | 0.2 |
-| | Engineer Net Capacity | | | | 4.8 | 4.8 | … | 4.8 |
-| | Management Capacity | | | | 2.0 | 2.0 | … | 2.0 |
-| | Management Absence | | | | 0.3 | 0.3 | … | 0.3 |
-| | Management Net Capacity | | | | 1.7 | 1.7 | … | 1.7 |
-| Platform | Auth & Identity Management | 0 | 80.0 PW | 62.4 PW | 4.8 | 4.8 | … | … |
-| Analytics | Real-time Analytics | 0 | 120.0 PW | … | … | … | … | … |
-| … | … | … | … | … | … | … | … | … |
-| Total | Weekly Allocation | | | | 4.8 | 4.8 | … | 4.8 |
-
-Week column headers: `Mon.DD` format (e.g. `Mar.30`, `Jun.22`). Each quarter has **13 week columns**.
-
-### Conditional formatting
-
-Both output files embed formula-based conditional formatting so cells stay highlighted correctly after manual edits:
-
-| What gets coloured | Trigger | Colour |
-|---|---|---|
-| `Off Estimate` cell (epic rows) | cell `= TRUE` | Red (`#FFC7CE`) |
-| `Off Capacity` cell (alert row, weekly) | cell `= TRUE` | Red (`#FFC7CE`) |
-| Entire row | `Budget Bucket` matches a known label | See table below |
-
-**Budget Bucket row colours:**
-
-| Budget Bucket | Colour |
+| Context | Unit |
 |---|---|
-| `Self-Service ML EV Range - Phase 1` | Dark green |
-| `Quality improvements through ML/AI experimentation` | Green |
-| `Maintenance & Release` | Blue |
-| `Security & Compliance` | Purple |
-| `Customer Support` | Red |
-| `Critical Technical Debt` | Orange |
-| `Critical Product Debt` | Yellow |
-| `Critical Customer Commitments` | Light orange |
+| Capacity / absence input | FTE / working days |
+| Weekly cells (capacity + epic allocation) | PW/week |
+| `Total Weeks`, `Estimation` | PW (total for the quarter) |
+
+1 PW = 1 person working a full week. Values rounded to 0.1 PW.
+
+### Flags
+
+- **`Off Estimate`** (`TRUE` = red): `abs(Total Weeks − Estimation) > 0.05` — epic not fully allocated within Q.
+- **`Off Capacity`** (`TRUE` = red): weekly allocation differs from net capacity by > 0.1 PW.
+
+Row background colours by `Budget Bucket` value and formula-based conditional formatting are applied to both output files. See `LOGIC.md` for the full colour table.
 
 ---
 
@@ -220,4 +114,4 @@ Both output files embed formula-based conditional formatting so cells stay highl
 uv run pytest        # run tests
 ```
 
-Sample files live in `data/examples/`. See `LOGIC.md` for the full allocation rules and `STRUCTURE.md` for the project layout.
+See `LOGIC.md` for allocation rules, `SPECS.md` for implementation details, and `CONTRIBUTING.md` for workflow and commit conventions.
