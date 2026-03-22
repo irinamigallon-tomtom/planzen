@@ -17,4 +17,4 @@ Read the relevant doc before acting:
 
 - Repo root is the boundary: no paths outside it, no home-directory dotfiles.
 - Do not commit secrets. Do not modify `data/examples/` from code or scripts.
-- Do not commit `SPECS.md` unless explicitly asked.
+- Never try to write to /tmp, since it is outside this repo. Instead, create a tmp folder inside this repo.
