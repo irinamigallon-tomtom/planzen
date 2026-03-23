@@ -72,12 +72,12 @@ async def export_session(session_id: str) -> StreamingResponse:
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     base_name = Path(session.filename).stem
-    zip_name = f"{base_name}_{timestamp}.zip"
+    zip_name = f"output_{base_name}_{timestamp}.zip"
 
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
-        zf.write(values_path, arcname=f"{base_name}_values.xlsx")
-        zf.write(formulas_path, arcname=f"{base_name}_formulas.xlsx")
+        zf.write(values_path, arcname=f"output_{base_name}_{timestamp}_values.xlsx")
+        zf.write(formulas_path, arcname=f"output_{base_name}_{timestamp}_formulas.xlsx")
     buf.seek(0)
 
     values_path.unlink(missing_ok=True)

@@ -16,10 +16,11 @@ export function ExportBar({ sessionId, filename, quarter }: ExportBarProps) {
     setError(null);
     try {
       const blob = await exportSession(sessionId);
+      const timestamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 12);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.setAttribute('download', `${filename}_Q${quarter}_export.zip`);
+      a.setAttribute('download', `output_${filename}_Q${quarter}_${timestamp}.zip`);
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);

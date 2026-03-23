@@ -83,6 +83,7 @@ def test_cli_succeeds_on_valid_input(tmp_path: Path) -> None:
     xlsx_files = list(tmp_path.glob("*.xlsx"))
     assert len(xlsx_files) == 2
     stems = {p.stem for p in xlsx_files}
+    assert all(s.startswith("output_") for s in stems)
     assert any("formulas" in s for s in stems)
     assert any("formulas" not in s for s in stems)
 

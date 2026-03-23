@@ -23,8 +23,8 @@ planzen INPUT_FILE -q QUARTER [-o OUTPUT_DIR]
 | `-o / --output-dir` | no | `./output/` | Directory for output files (created if absent) |
 
 Two output files are always written; names are derived from the input stem + timestamp:
-- `{stem}_{YYMMDDhhmm}.xlsx` — values file
-- `{stem}_{YYMMDDhhmm}_formulas.xlsx` — formulas file
+- `output_{stem}_{YYMMDDhhmm}.xlsx` — values file
+- `output_{stem}_{YYMMDDhhmm}_formulas.xlsx` — formulas file
 
 On validation error: print numbered errors in red, exit code 1, write no files.  
 On overflow: print informational message (not an error).  

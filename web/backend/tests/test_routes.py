@@ -167,5 +167,20 @@ class TestExport:
         session = self._upload(client, example_xlsx)
         sid = session["session_id"]
         resp = client.get(f"/api/sessions/{sid}/export")
-        assert "attachment" in resp.headers.get("content-disposition", "")
-        assert ".zip" in resp.headers.get("content-disposition", "")
+        cd = resp.headers.get("content-disposition", "")
+        assert "attachment" in cd
+        assert ".zip" in cd
+        assert "output_" in cd
+
+    def test_export_zip_contains_output_files(self, client, example_xlsx):
+        import io, zipfile, re
+        session = self._upload(client, example_xlsx)
+        sid = session["session_id"]
+        resp = client.get(f"/api/sessions/{sid}/export")
+        assert resp.status_code == 200
+        with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
+            names = zf.namelist()
+        assert len(names) == 2
+        assert all(n.startswith("output_") for n in names)
+        assert any("_values.xlsx" in n for n in names)
+        assert any("_formulas.xlsx" in n for n in names)

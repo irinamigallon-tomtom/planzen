@@ -5,8 +5,8 @@ Usage:
     uv run planzen INPUT_FILE -q QUARTER [-o OUTPUT_DIR]
 
 Two output files are always created in OUTPUT_DIR (default: ./output/):
-  {input_stem}_YYYYMMddhhmm.xlsx           — values only
-  {input_stem}_YYYYMMddhhmm_formulas.xlsx  — calculated cells as formulas
+  output_{input_stem}_YYYYMMddhhmm.xlsx           — values only
+  output_{input_stem}_YYYYMMddhhmm_formulas.xlsx  — calculated cells as formulas
 """
 
 from __future__ import annotations
@@ -70,7 +70,7 @@ def run(
 
     output_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d%H%M")
-    stem = f"{input_file.stem}_{timestamp}"
+    stem = f"output_{input_file.stem}_{timestamp}"
     values_path = output_dir / f"{stem}.xlsx"
     formulas_file = output_dir / f"{stem}_formulas.xlsx"
 
