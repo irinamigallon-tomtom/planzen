@@ -24,6 +24,8 @@ npm run dev
 
 This starts both the backend (port 8000) and the frontend (port 5173) in one terminal with colour-coded output. Opens at **http://localhost:5173**.
 
+**To stop:** press `Ctrl+C` once in that terminal. `concurrently` forwards the signal to both processes and exits cleanly.
+
 <details>
 <summary>Start them separately instead</summary>
 
@@ -34,6 +36,8 @@ uv run uvicorn main:app --app-dir web/backend --reload --port 8000
 # Terminal 2 — frontend
 cd web/frontend && npm run dev
 ```
+
+**To stop each process:** press `Ctrl+C` in its terminal.
 </details>
 
 ---
@@ -56,7 +60,8 @@ cd web/frontend && npm run dev
 
 - The **Epics** table shows all epic fields (description, estimation, priority, budget bucket, allocation mode, milestone, type, link)
 - Click any cell to edit it inline
-- Use the **Add Epic** button to add a new row; drag the row handle to reorder and renumber priorities
+- Use the **Add Epic** button to add a new row (defaults to priority 0); drag the row handle to reorder visually without changing priority values
+- Edit the **Priority** cell directly to set a numeric priority (lower = higher priority; duplicates are flagged with an info banner)
 - The **Delete** button (✕) on each row removes it
 - Changes trigger a live re-compute after 500 ms
 
@@ -69,10 +74,8 @@ cd web/frontend && npm run dev
 
 ### 5. Export
 
-- Click **Download Export** to download a `.zip` containing two Excel files:
-  - `{filename}_values.xlsx` — plain computed values
-  - `{filename}_formulas.xlsx` — same data with auditable Excel formulas and conditional formatting
-- These are identical to what the CLI produces
+- Click **Download Export** to download a single `.xlsx` file with auditable Excel formulas and conditional formatting
+- This is identical to what the CLI produces
 
 ---
 
@@ -88,9 +91,8 @@ uv run planzen INPUT_FILE -q QUARTER [-o OUTPUT_DIR]
 | `-q / --quarter` | ✅ | — | Fiscal quarter (1–4) |
 | `-o / --output-dir` | no | `./output/` | Output directory (created if absent) |
 
-Two files are written per run:
-- `{stem}_{YYMMDDhhmm}.xlsx` — values
-- `{stem}_{YYMMDDhhmm}_formulas.xlsx` — formulas
+One file is written per run:
+- `output_{YYMMDDhhmm}_{stem}_formulas.xlsx` — formulas + conditional formatting
 
 ### Fiscal quarters (2026)
 

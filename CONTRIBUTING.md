@@ -7,6 +7,8 @@
 - Sync environment: `uv sync`
 - Run the CLI: `uv run planzen`
 - Run tests: `uv run pytest`
+- Start the web app (combined): `npm run dev` — press **`Ctrl+C`** to stop both processes
+- Start separately: `uv run uvicorn main:app --app-dir web/backend --reload --port 8000` and `cd web/frontend && npm run dev` — press **`Ctrl+C`** in each terminal to stop
 
 ## Before you start
 
