@@ -68,7 +68,7 @@ async def export_session(session_id: str) -> StreamingResponse:
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     base_name = Path(session.filename).stem
-    xlsx_name = f"output_{base_name}_{timestamp}_formulas.xlsx"
+    xlsx_name = f"output_{timestamp}_{base_name}_formulas.xlsx"
 
     content = formulas_path.read_bytes()
     formulas_path.unlink(missing_ok=True)

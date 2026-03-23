@@ -4,8 +4,8 @@ CLI entrypoint for planzen.
 Usage:
     uv run planzen INPUT_FILE -q QUARTER [-o OUTPUT_DIR]
 
-Two output files are always created in OUTPUT_DIR (default: ./output/):
-  output_{input_stem}_YYYYMMddhhmm_formulas.xlsx  — calculated cells as formulas
+One output file is created in OUTPUT_DIR (default: ./output/):
+  output_YYYYMMddhhmm_{input_stem}_formulas.xlsx  — calculated cells as formulas
 """
 
 from __future__ import annotations
@@ -69,7 +69,7 @@ def run(
 
     output_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d%H%M")
-    formulas_file = output_dir / f"output_{input_file.stem}_{timestamp}_formulas.xlsx"
+    formulas_file = output_dir / f"output_{timestamp}_{input_file.stem}_formulas.xlsx"
 
     write_output_with_formulas(output_df, formulas_file, len(primary_mondays))
     typer.echo(f"Formulas output written to {formulas_file}")

@@ -46,7 +46,7 @@ describe('ExportBar', () => {
       .map((c) => c[0] as HTMLElement)
       .find((el) => el.tagName === 'A');
     expect(anchor).toBeDefined();
-    expect(anchor!.getAttribute('download')).toMatch(/^output_myplan_Q3_\d{12}_formulas\.xlsx$/);
+    expect(anchor!.getAttribute('download')).toMatch(/^output_\d{12}_myplan_Q3_formulas\.xlsx$/);
 
     appendSpy.mockRestore();
   });

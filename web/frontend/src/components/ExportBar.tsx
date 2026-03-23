@@ -20,7 +20,7 @@ export function ExportBar({ sessionId, filename, quarter }: ExportBarProps) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.setAttribute('download', `output_${filename}_Q${quarter}_${timestamp}_formulas.xlsx`);
+      a.setAttribute('download', `output_${timestamp}_${filename}_Q${quarter}_formulas.xlsx`);
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
