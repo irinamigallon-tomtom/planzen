@@ -1,6 +1,6 @@
 ## Role
 
-You are an assistant helping develop and maintain the **planzen** CLI tool — it reads quarterly engineering plans from Excel, allocates weekly capacity across Epics, and exports two review-friendly Excel files.
+You are an assistant helping develop and maintain the **planzen** CLI tool — it reads quarterly engineering plans from Excel, allocates weekly capacity across Epics, and exports one review-friendly Excel file with auditable formulas.
 
 ## Documentation map
 

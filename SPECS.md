@@ -6,7 +6,7 @@ All behaviour described here is implemented and tested. For business rules, calc
 
 ## 1. Purpose
 
-`planzen` reads a quarterly engineering plan from an Excel file, allocates weekly capacity to Epics, and writes two review-friendly Excel output files (one with computed values, one with auditable formulas).
+`planzen` reads a quarterly engineering plan from an Excel file, allocates weekly capacity to Epics, and writes one review-friendly Excel output file with auditable formulas.
 
 ---
 
@@ -130,7 +130,7 @@ For capacity header row labels, computations, and per-week mode behaviour see [L
 
 ## 6. Conditional Formatting
 
-Applied to both output files via openpyxl `FormulaRule`. See [LOGIC.md](LOGIC.md) for full colour table and rule details.
+Applied to the output file via openpyxl `FormulaRule`. See [LOGIC.md](LOGIC.md) for full colour table and rule details.
 
 Summary:
 - `Off Estimate = TRUE` → red fill (`#FFC7CE`) + red font (`#9C0006`)
@@ -179,7 +179,7 @@ Pure: returns the full output DataFrame with capacity rows, epic rows, total row
 **`validate_allocation(df, capacity, mondays) -> list[str]`**  
 Post-allocation invariant checks; returns violations (empty = valid).
 
-**`write_output(df, path)`** — values file.  
+**`write_output(df, path)`** — internal helper: writes values to disk. Called by `write_output_with_formulas` as a first step (formulas are overlaid on top); not called directly by the CLI or the web backend.  
 **`write_output_with_formulas(df, path, n_base_weeks)`** — formulas file; `n_base_weeks` limits Total Weeks SUM to Q-only.
 
 **`CapacityConfig`** (dataclass):
@@ -233,12 +233,12 @@ OFF_CAPACITY_THRESHOLD = 0.1
 
 - `validate_input_file`: returns errors for missing columns, invalid allocation mode, partial per-week bruto
 - `read_input`: returns `(epics_df, CapacityConfig)`; per-week fields populated when D.M. columns present; scalar absence converted to PW/week
-- `write_output`: file created; numeric values; conditional formatting applied
+- `write_output`: file created; numeric values; conditional formatting applied (internal helper, tested directly)
 - `write_output_with_formulas`: `=SUM(first:last_Q_week)` in Total Weeks (capacity + epic rows); Net Capacity rows have subtraction formula; Off Estimate has `ABS`; Off Capacity has `ABS`; SUM references correct epic rows for 1, 3, 5 epics
 
 ### `test_integration.py`
 
-- CLI runs end-to-end: both output files created; exit code 0
+- CLI runs end-to-end: one output file created; exit code 0
 - Validation errors cause exit code 1 and no output files
 - Realistic messy input file runs without errors
 
@@ -361,7 +361,7 @@ Thin adapter between JSON models and core_logic types:
 - `PUT /api/sessions/{id}/epics` → 200
 - `DELETE /api/sessions/{id}` → 204; subsequent GET → 404
 - `POST /api/sessions/{id}/compute` → 200, rows non-empty, 13+ week_labels
-- `GET /api/sessions/{id}/export` → 200, content-type zip
+- `GET /api/sessions/{id}/export` → 200, content-type `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`
 
 Tests use `PLANZEN_SESSION_DIR` env var pointing to a `tmp_path` fixture to avoid polluting `tmp/sessions/`.
 
@@ -473,8 +473,9 @@ Typed `fetch` wrappers for all backend endpoints. All functions are async and th
 
 **`EpicsTable`** — props: `{ sessionId, epics, onEpicsChanged, debounceMs? }`
 - AG Grid editable table with columns: priority, epic_description, estimation, budget_bucket, allocation_mode (dropdown: Sprint/Uniform/Gaps), milestone, type, link, delete action
-- "Add Epic" button: appends row with defaults (priority = max+1, estimation = 1.0, allocation_mode = "Sprint")
-- Row drag-to-reorder (`rowDragManaged`): renumbers priorities sequentially after drop
+- "Add Epic" button: appends row with defaults (priority = 0, estimation = 1.0, allocation_mode = "Sprint")
+- Row drag-to-reorder (`rowDragManaged`): reorders the visual list without modifying priority values
+- Duplicate priority detection: when two or more epics share a priority value, an amber info banner is shown listing the duplicate values
 - Debounced 500 ms (0 ms in tests via `debounceMs` prop): calls `updateEpics` then `onEpicsChanged`
 
 **`AllocationPreview`** — props: `{ sessionId, computeResponse, onOverrideChanged }`

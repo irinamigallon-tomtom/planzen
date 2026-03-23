@@ -1,6 +1,6 @@
 # planzen
 
-planzen reads a quarterly engineering plan from an Excel file, allocates weekly capacity to Epics, and writes two review-friendly Excel output files — one with plain values, one with auditable formulas. It ships both as a **CLI tool** for scripted use and a **web frontend** for interactive editing and preview.
+planzen reads a quarterly engineering plan from an Excel file, allocates weekly capacity to Epics, and writes one review-friendly Excel output file with auditable formulas. It ships both as a **CLI tool** for scripted use and a **web frontend** for interactive editing and preview.
 
 ---
 

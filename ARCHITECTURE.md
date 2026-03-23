@@ -88,7 +88,7 @@ App
     ├── CapacityEditor    (team capacity form, debounced PUT)
     ├── EpicsTable        (AG Grid, editable, debounced PUT)
     ├── AllocationPreview (AG Grid, live-computed, week-cell overrides)
-    └── ExportBar         (download zip)
+    └── ExportBar         (download xlsx)
 ```
 
 ### Key design decisions
@@ -138,10 +138,10 @@ User clicks "Download Export"
 GET /api/sessions/{id}/export
         │
         ▼  (backend)
-build_output_table()  →  apply manual_overrides  →  write_output()  →  write_output_with_formulas()
+build_output_table()  →  apply manual_overrides  →  write_output_with_formulas()
         │
         ▼
-zip(values.xlsx, formulas.xlsx)  →  StreamingResponse (application/zip)
+StreamingResponse (application/vnd.openxmlformats-officedocument.spreadsheetml.sheet)
         │
         ▼  (frontend)
 Blob  →  createObjectURL  →  <a download>  →  revokeObjectURL
@@ -183,7 +183,7 @@ The session JSON is a serialised `SessionState` Pydantic model.
 |---|---|---|---|
 | CLI core logic | pytest | `tests/` | ~127 tests |
 | Web backend | pytest + FastAPI TestClient | `web/backend/tests/` | 25 tests |
-| Frontend components | Vitest + React Testing Library | `web/frontend/src/` | 33 tests |
+| Frontend components | Vitest + React Testing Library | `web/frontend/src/` | 35 tests |
 
 Run all:
 

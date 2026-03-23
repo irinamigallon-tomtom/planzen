@@ -4,7 +4,7 @@
 planzen/
 ├── pyproject.toml              # project metadata and dependencies (managed by uv)
 ├── src/planzen/
-│   ├── cli.py                  # CLI entrypoint (argparse, orchestration only)
+│   ├── cli.py                  # CLI entrypoint (Typer, orchestration only)
 │   ├── core_logic.py           # Pure business logic — no file I/O
 │   ├── excel_io.py             # All Excel read/write
 │   └── config.py               # Constants: labels, fiscal quarters, thresholds
