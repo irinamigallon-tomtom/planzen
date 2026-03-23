@@ -1,10 +1,8 @@
 """
-Export route: builds output tables and returns a zip of two Excel files.
+Export route: builds the formulas output table and streams it as an Excel file.
 """
 from __future__ import annotations
 
-import io
-import zipfile
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -12,7 +10,7 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
 from planzen.core_logic import build_output_table, get_quarter_dates
-from planzen.excel_io import write_output, write_output_with_formulas
+from planzen.excel_io import write_output_with_formulas
 from planzen.config import (
     OUT_COL_BUDGET_BUCKET, OUT_COL_EPIC, OUT_COL_ESTIMATION,
     OUT_COL_OFF_ESTIMATE, OUT_COL_PRIORITY, OUT_COL_TOTAL_WEEKS,
@@ -64,27 +62,19 @@ async def export_session(session_id: str) -> StreamingResponse:
     n_base_weeks = len(mondays)
 
     _TMP_DIR.mkdir(parents=True, exist_ok=True)
-    values_path = _TMP_DIR / f"{session_id}_values.xlsx"
     formulas_path = _TMP_DIR / f"{session_id}_formulas.xlsx"
 
-    write_output(df, values_path)
     write_output_with_formulas(df, formulas_path, n_base_weeks=n_base_weeks)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     base_name = Path(session.filename).stem
-    zip_name = f"output_{base_name}_{timestamp}.zip"
+    xlsx_name = f"output_{base_name}_{timestamp}_formulas.xlsx"
 
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
-        zf.write(values_path, arcname=f"output_{base_name}_{timestamp}_values.xlsx")
-        zf.write(formulas_path, arcname=f"output_{base_name}_{timestamp}_formulas.xlsx")
-    buf.seek(0)
-
-    values_path.unlink(missing_ok=True)
+    content = formulas_path.read_bytes()
     formulas_path.unlink(missing_ok=True)
 
     return StreamingResponse(
-        buf,
-        media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{zip_name}"'},
+        iter([content]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{xlsx_name}"'},
     )

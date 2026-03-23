@@ -81,11 +81,10 @@ def test_cli_succeeds_on_valid_input(tmp_path: Path) -> None:
     ])
     assert result.exit_code == 0, result.output
     xlsx_files = list(tmp_path.glob("*.xlsx"))
-    assert len(xlsx_files) == 2
-    stems = {p.stem for p in xlsx_files}
-    assert all(s.startswith("output_") for s in stems)
-    assert any("formulas" in s for s in stems)
-    assert any("formulas" not in s for s in stems)
+    assert len(xlsx_files) == 1
+    stem = xlsx_files[0].stem
+    assert stem.startswith("output_")
+    assert "formulas" in stem
 
 
 def test_cli_exits_nonzero_on_invalid_input(tmp_path: Path) -> None:
@@ -148,4 +147,4 @@ def test_cli_succeeds_despite_empty_rows(tmp_path: Path) -> None:
         "-o", str(tmp_path),
     ])
     assert result.exit_code == 0, result.output
-    assert len(list(tmp_path.glob("*.xlsx"))) == 2
+    assert len(list(tmp_path.glob("*.xlsx"))) == 1

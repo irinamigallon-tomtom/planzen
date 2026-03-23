@@ -156,12 +156,12 @@ class TestExport:
         assert resp.status_code == 200
         return resp.json()
 
-    def test_export_returns_zip(self, client, example_xlsx):
+    def test_export_returns_xlsx(self, client, example_xlsx):
         session = self._upload(client, example_xlsx)
         sid = session["session_id"]
         resp = client.get(f"/api/sessions/{sid}/export")
         assert resp.status_code == 200, resp.text
-        assert resp.headers["content-type"] == "application/zip"
+        assert "spreadsheetml" in resp.headers["content-type"]
 
     def test_export_content_disposition(self, client, example_xlsx):
         session = self._upload(client, example_xlsx)
@@ -169,18 +169,5 @@ class TestExport:
         resp = client.get(f"/api/sessions/{sid}/export")
         cd = resp.headers.get("content-disposition", "")
         assert "attachment" in cd
-        assert ".zip" in cd
+        assert "_formulas.xlsx" in cd
         assert "output_" in cd
-
-    def test_export_zip_contains_output_files(self, client, example_xlsx):
-        import io, zipfile, re
-        session = self._upload(client, example_xlsx)
-        sid = session["session_id"]
-        resp = client.get(f"/api/sessions/{sid}/export")
-        assert resp.status_code == 200
-        with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
-            names = zf.namelist()
-        assert len(names) == 2
-        assert all(n.startswith("output_") for n in names)
-        assert any("_values.xlsx" in n for n in names)
-        assert any("_formulas.xlsx" in n for n in names)

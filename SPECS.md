@@ -22,8 +22,7 @@ planzen INPUT_FILE -q QUARTER [-o OUTPUT_DIR]
 | `-q / --quarter` | ✅ | — | Fiscal quarter (1–4); determines the 13-week window |
 | `-o / --output-dir` | no | `./output/` | Directory for output files (created if absent) |
 
-Two output files are always written; names are derived from the input stem + timestamp:
-- `output_{stem}_{YYMMDDhhmm}.xlsx` — values file
+One output file is written; its name is derived from the input stem + timestamp:
 - `output_{stem}_{YYMMDDhhmm}_formulas.xlsx` — formulas file
 
 On validation error: print numbered errors in red, exit code 1, write no files.  
@@ -329,7 +328,7 @@ All routes are prefixed `/api`.
 | PUT | `/sessions/{id}/epics` | `list[EpicModel]` | `SessionState` | Replaces epics list; persists |
 | PATCH | `/sessions/{id}/overrides` | `dict[str, dict[str, float]]` | `SessionState` | Merges manual overrides; persists |
 | POST | `/sessions/{id}/compute` | — | `ComputeResponse` | Runs `build_output_table`; applies manual overrides as display post-processing; runs `validate_allocation` |
-| GET | `/sessions/{id}/export` | — | `application/zip` | Runs `write_output` + `write_output_with_formulas`; zips both files; streams download; cleans up temp files |
+| GET | `/sessions/{id}/export` | — | `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` | Runs `write_output_with_formulas`; streams the xlsx; cleans up temp files |
 
 ### 11.4 Bridge (`bridge.py`)
 

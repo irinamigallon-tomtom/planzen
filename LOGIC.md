@@ -105,7 +105,7 @@ The `Total Weeks` column is populated for **all 6 capacity header rows** (not ju
 
 ## Conditional formatting
 
-Both output files (values and formulas) include Excel formula-based conditional formatting rules so that highlights update automatically when the workbook is edited manually.
+The output file includes Excel formula-based conditional formatting rules so that highlights update automatically when the workbook is edited manually.
 
 ### Boolean alert highlighting
 

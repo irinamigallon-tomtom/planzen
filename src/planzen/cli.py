@@ -5,7 +5,6 @@ Usage:
     uv run planzen INPUT_FILE -q QUARTER [-o OUTPUT_DIR]
 
 Two output files are always created in OUTPUT_DIR (default: ./output/):
-  output_{input_stem}_YYYYMMddhhmm.xlsx           — values only
   output_{input_stem}_YYYYMMddhhmm_formulas.xlsx  — calculated cells as formulas
 """
 
@@ -19,7 +18,7 @@ import typer
 
 from planzen.config import COL_ESTIMATION
 from planzen.core_logic import build_output_table, get_quarter_dates, _mondays_in_range
-from planzen.excel_io import read_input, validate_input_file, write_output, write_output_with_formulas
+from planzen.excel_io import read_input, validate_input_file, write_output_with_formulas
 
 app = typer.Typer(help="planzen — weekly capacity allocation tool.")
 logging.basicConfig(level=logging.WARNING, format="⚠  %(message)s")
@@ -70,13 +69,9 @@ def run(
 
     output_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d%H%M")
-    stem = f"output_{input_file.stem}_{timestamp}"
-    values_path = output_dir / f"{stem}.xlsx"
-    formulas_file = output_dir / f"{stem}_formulas.xlsx"
+    formulas_file = output_dir / f"output_{input_file.stem}_{timestamp}_formulas.xlsx"
 
-    write_output(output_df, values_path)
     write_output_with_formulas(output_df, formulas_file, len(primary_mondays))
-    typer.echo(f"Values output written to   {values_path}")
     typer.echo(f"Formulas output written to {formulas_file}")
 
 
