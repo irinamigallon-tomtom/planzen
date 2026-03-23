@@ -9,9 +9,10 @@ Read the relevant doc before acting:
 | I need to know… | Read |
 |---|---|
 | Business rules, units, input/output format, allocation algorithm, overflow | **`LOGIC.md`** |
-| API signatures, architecture, constants, test coverage requirements | **`SPECS.md`** |
+| CLI contract, implementation details, constants, test coverage, web API summary | **`SPECS.md`** |
+| How CLI, backend, and frontend fit together (architecture) | **`ARCHITECTURE.md`** |
+| Where top-level folders and files live (no deep design) | **`STRUCTURE.md`** |
 | Commands, testing workflow, commit conventions, safety rules | **`CONTRIBUTING.md`** |
-| Directory layout and module responsibilities | **`STRUCTURE.md`** |
 
 ## Safety
 

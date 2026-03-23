@@ -1,28 +1,43 @@
-# planzen — Directory Structure
+# planzen — Repository layout
+
+This file describes **how the repository is split into areas**. For how those areas connect at runtime (CLI, web stack, data flow), see **[ARCHITECTURE.md](ARCHITECTURE.md)**.
 
 ```
 planzen/
-├── pyproject.toml              # project metadata and dependencies (managed by uv)
-├── src/planzen/
-│   ├── cli.py                  # CLI entrypoint (Typer, orchestration only)
-│   ├── core_logic.py           # Pure business logic — no file I/O
-│   ├── excel_io.py             # All Excel read/write
-│   └── config.py               # Constants: labels, fiscal quarters, thresholds
-├── tests/
-│   ├── test_core_logic.py      # Unit + integration tests for allocation logic
-│   ├── test_excel_io.py        # Tests for Excel I/O and formula generation
-│   ├── test_integration.py     # End-to-end CLI tests
-│   └── data/                   # Fixture files (.xlsx) used by tests
-├── data/examples/              # Human-maintained sample inputs — never modify programmatically
-├── output/                     # Default destination for generated files
-├── logs/                       # Runtime log files (not committed)
-├── tmp/                        # Scratch space (not committed)
-├── .github/
-│   └── copilot-instructions.md # Points AI tools to AGENTS.md
-├── AGENTS.md                   # Agent orientation and doc map (read first)
-├── CONTRIBUTING.md             # Developer workflow: commands, testing, commits
-├── LOGIC.md                    # Business rules: what the app computes and why
-├── SPECS.md                    # Implementation spec: API, architecture, constants, tests
-├── STRUCTURE.md                # This file
-└── README.md                   # End-user documentation
+├── pyproject.toml          # Python project metadata and dependencies (uv)
+├── src/planzen/            # Installable Python package: CLI + shared logic + Excel I/O
+├── tests/                  # Pytest suite and test fixtures
+├── web/                    # Optional FastAPI backend and React frontend
+├── data/                   # Spreadsheet inputs used for manual checks (see CONTRIBUTING.md)
+├── data/examples/          # Curated sample inputs — do not modify from code or scripts
+├── output/                 # Default CLI output directory (usually gitignored)
+├── logs/                   # Runtime logs (usually gitignored)
+├── tmp/                    # Scratch space (usually gitignored)
+├── .github/                # Automation and tool hints
+├── AGENTS.md               # Orientation for coding agents
+├── CONTRIBUTING.md         # Workflow, testing, commits
+├── LOGIC.md                # Business rules and algorithms
+├── SPECS.md                # Implementation specification (APIs, tests, contracts)
+├── ARCHITECTURE.md         # System design and component relationships
+├── STRUCTURE.md            # This file
+└── README.md               # User getting started
+```
+
+`web/` in more detail:
+
+```
+web/
+├── backend/
+│   ├── main.py             # FastAPI app
+│   ├── models.py           # Pydantic schemas
+│   ├── bridge.py           # JSON ↔ planzen core types
+│   ├── persistence.py      # Session JSON files
+│   ├── routes/             # API routers
+│   └── tests/
+└── frontend/
+    └── src/
+        ├── api/            # HTTP client
+        ├── components/     # UI
+        ├── store/          # Zustand
+        └── types/          # TypeScript types
 ```

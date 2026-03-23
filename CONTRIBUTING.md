@@ -13,8 +13,8 @@
 ## Before you start
 
 - Read **`LOGIC.md`** before implementing or changing any business rule.
-- Read **`SPECS.md`** before starting any non-trivial change (API, architecture, constants).
-- See **`STRUCTURE.md`** for the directory layout and module responsibilities.
+- Read **`SPECS.md`** before starting any non-trivial change (API, constants, contracts).
+- See **`ARCHITECTURE.md`** for how components fit together; **`STRUCTURE.md`** only lists where folders live.
 
 ## Development workflow
 
@@ -26,12 +26,19 @@
 ## Testing
 
 - `uv run pytest` must pass before any commit.
+- Every `input_*.xlsx` under `data/` must run successfully with **`uv run planzen <file> -q 2 -o output/`** (exit code 0). Add new spreadsheets under `data/` when you introduce inputs that should stay covered.
+
+  ```bash
+  find data -name '*.xlsx' -print0 | while IFS= read -r -d '' f; do
+    uv run planzen "$f" -q 2 -o output/ || exit 1
+  done
+  ```
 - Write or update tests for every behaviour change.
 - **Bug fixes:** write a failing test that reproduces the bug first, then fix the code.
 
 ## Documentation sync
 
-- Keep `LOGIC.md`, `SPECS.md`, `README.md`, and `data/examples/` in sync with code changes.
+- Keep `LOGIC.md`, `SPECS.md`, `README.md`, `ARCHITECTURE.md`, and `data/examples/` in sync with code changes.
 - Update inline docstrings when changing function signatures or behaviour.
 
 ## Safety
@@ -46,5 +53,4 @@
 - Use [Conventional Commits](https://www.conventionalcommits.org/): `feat:`, `fix:`, `docs:`, `refactor:`, `test:`, …
 - Subject line: **15 words maximum**.
 - Only commit when explicitly asked.
-- Do not commit `SPECS.md` unless asked.
-- Always add co-author trailer: `Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>`
+- If you are an agent, always add yourself as a co-author trailer.

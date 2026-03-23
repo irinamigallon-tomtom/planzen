@@ -1,6 +1,6 @@
 # Architecture
 
-This document explains the system architecture for developers and AI agents who want to understand how the components fit together, why certain technology choices were made, and how data flows through the system. It is not an API reference (that's in `SPECS.md`) — it explains the *why* and the *shape* of the system.
+This is the **only** place for **architecture** — how components connect, data flow, and technology choices. **HTTP routes and JSON models:** **`SPECS.md`** §9. **CLI, formulas, Python function contracts, constants, test inventory:** **`SPECS.md`** §§1–8. **Business rules:** **`LOGIC.md`**. **Repo folders only:** **`STRUCTURE.md`**.
 
 ---
 
@@ -177,52 +177,10 @@ The session JSON is a serialised `SessionState` Pydantic model.
 
 ---
 
-## 11. Testing Strategy
+## 11. Tests
 
-| Layer | Tool | Location | Count |
-|---|---|---|---|
-| CLI core logic | pytest | `tests/` | ~127 tests |
-| Web backend | pytest + FastAPI TestClient | `web/backend/tests/` | 25 tests |
-| Frontend components | Vitest + React Testing Library | `web/frontend/src/` | 35 tests |
-
-Run all:
+What to run and what each layer must cover: **`SPECS.md`** §8.
 
 ```bash
 uv run pytest tests/ web/backend/tests/ && cd web/frontend && npm test -- --run
-```
-
----
-
-## 12. Directory Map (with responsibilities)
-
-```
-planzen/
-├── src/planzen/            # Core business logic — shared by CLI and web
-│   ├── cli.py              # CLI entrypoint only
-│   ├── core_logic.py       # Pure allocation logic — NO I/O
-│   ├── excel_io.py         # All Excel read/write
-│   └── config.py           # Shared constants
-├── web/
-│   ├── backend/            # FastAPI web API
-│   │   ├── main.py         # App factory
-│   │   ├── models.py       # Pydantic schemas
-│   │   ├── bridge.py       # JSON ↔ core_logic types
-│   │   ├── persistence.py  # Session JSON storage
-│   │   ├── routes/         # sessions, compute, export
-│   │   └── tests/          # 25 backend tests
-│   └── frontend/           # React + TypeScript
-│       └── src/
-│           ├── api/        # Typed fetch wrappers
-│           ├── components/ # All UI components
-│           ├── store/      # Zustand session store
-│           └── types/      # Shared TypeScript interfaces
-├── tests/                  # CLI + core_logic tests (127)
-├── data/examples/          # Human-maintained sample inputs
-├── tmp/sessions/           # Runtime: session JSON files (gitignored)
-├── output/                 # CLI output directory (gitignored)
-├── pyproject.toml          # Single Python env for CLI + backend
-├── LOGIC.md                # Business rules and algorithms
-├── SPECS.md                # Full implementation spec (CLI + web)
-├── ARCHITECTURE.md         # This file
-└── CONTRIBUTING.md         # Developer workflow
 ```

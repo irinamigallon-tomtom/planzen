@@ -1,211 +1,125 @@
-# planzen — Implementation Specification
+# planzen — Implementation specification
 
-All behaviour described here is implemented and tested. For business rules, calculations, and algorithms see **[LOGIC.md](LOGIC.md)**.
-
----
-
-## 1. Purpose
-
-`planzen` reads a quarterly engineering plan from an Excel file, allocates weekly capacity to Epics, and writes one review-friendly Excel output file with auditable formulas.
+- **Behaviour and rules:** **[LOGIC.md](LOGIC.md)**
+- **Structure, flows, UI stack:** **[ARCHITECTURE.md](ARCHITECTURE.md)**
+- **This file:** contracts only — CLI, validation, output mechanics, `planzen` Python API, constants, HTTP API, and what tests must cover.
 
 ---
 
-## 2. CLI Interface
+## 1. CLI
 
 ```
 planzen INPUT_FILE -q QUARTER [-o OUTPUT_DIR]
 ```
 
-| Argument / Option | Required | Default | Description |
+| Argument / option | Required | Default | Description |
 |---|---|---|---|
-| `INPUT_FILE` | ✅ | — | Path to the input `.xlsx` file |
-| `-q / --quarter` | ✅ | — | Fiscal quarter (1–4); determines the 13-week window |
-| `-o / --output-dir` | no | `./output/` | Directory for output files (created if absent) |
+| `INPUT_FILE` | ✅ | — | Input `.xlsx` |
+| `-q` / `--quarter` | ✅ | — | Quarter `1`–`4` |
+| `-o` / `--output-dir` | no | `./output/` | Output directory |
 
-One output file is written; its name is derived from the input stem + timestamp:
-- `output_{YYMMDDhhmm}_{stem}_formulas.xlsx` — formulas file
+Writes one file: `output_{YYMMDDhhmm}_{stem}_formulas.xlsx`.
 
-On validation error: print numbered errors in red, exit code 1, write no files.  
-On overflow: print informational message (not an error).  
-Exit code 0 on success.
-
----
-
-## 3. Fiscal Quarters
-
-Each quarter spans exactly 13 Mondays (start and end inclusive). Week column headers use `strftime("%b.%d")` — abbreviated month name + zero-padded day (e.g. `Mar.30`, `Jan.05`, `Dec.29`).
-
-| Q | Start Monday | End Monday |
+| Outcome | Exit | Files |
 |---|---|---|
-| 1 | 2025-12-29 | 2026-03-23 |
-| 2 | 2026-03-30 | 2026-06-22 |
-| 3 | 2026-06-29 | 2026-09-21 |
-| 4 | 2026-09-28 | 2026-12-21 |
+| Validation errors | `1` | none |
+| Success | `0` | formulas workbook |
+| Overflow (estimation > Q capacity) | `0` | same; CLI prints an info line |
 
 ---
 
-## 4. Input Format
+## 2. Quarters and week labels
 
-A single `.xlsx` file with one sheet. Team config rows appear first; epic rows follow. Any number of blank rows between them are ignored.
+Calendar (start/end Mondays): **[LOGIC.md](LOGIC.md)** — *2026 Fiscal quarters*.
 
-### 4.1 Team Config Rows
+Implementation: each quarter is **13 Mondays**. Generated week column headers use `strftime("%b.%d")` (e.g. `Mar.30`, `Jan.05`).
 
-Config rows are identified by a known label appearing in **any of** the `Budget Bucket`, `Type`, or `Epic Description` columns (checked in that order; first match wins). Config rows do not require a `Budget Bucket` or `Priority` value.
+---
 
-Both formats are common: classic files put the config label in the `Budget Bucket` column with `Epic Description` left blank; newer files may put the label in `Epic Description` with `Budget Bucket` left blank. Both are handled identically.
+## 3. Input validation
 
-See [LOGIC.md](LOGIC.md) for the full list of recognised labels, required/optional status, units, default values, and fuzzy matching rules.
+Full input format (columns, config labels, per-week mode, row rules): **[LOGIC.md](LOGIC.md)** — *Input*.
 
-The input file may also contain week columns for per-week engineer capacity and absence distribution. Two header formats are recognised: **`D.M.`** (e.g. `30.3.`, `6.4.`) and **`D-Mon`** (e.g. `30-Mar`, `6-Apr`). Week dates may also be stored as datetime values in a data row rather than as column headers — the loader detects this automatically. See [LOGIC.md](LOGIC.md) — Per-week capacity mode.
+**Hard errors** (all reported together; processing stops):
 
-### 4.2 Epic Columns
+1. No engineer capacity row (`Engineer Capacity (Bruto)` or `Num Engineers`).
+2. Sheet missing required epic columns: `Epic Description`, `Estimation`, `Budget Bucket`.
+3. Epic `Estimation` not numeric.
+4. Epic `Priority` provided but not numeric.
+5. `Allocation Mode` set but not one of `Sprint`, `Uniform`, `Gaps`.
 
-Named metadata columns may appear in **any order**, as long as they all precede the week columns. Column names are matched case-insensitively. Unrecognised columns (helper totals, notes, columns with no header) are silently ignored.
+**Warnings** (processing continues):
 
-Only the column explicitly named `Estimation` is used for epic effort estimates.
+6. Per-week engineer bruto partially filled for Q — missing weeks use scalar from the mean of filled weeks.
 
-| Column | Required |
+---
+
+## 4. Output workbook
+
+Semantics of rows/columns and flags: **[LOGIC.md](LOGIC.md)** — *Output table structure*, *Conditional formatting*.
+
+### 4.1 Column order (metadata then weeks)
+
+```
+Budget Bucket | Epic Description | Priority | Estimation | Total Weeks | Off Estimate | [week columns…]
+```
+
+`Off Estimate` is empty on capacity rows, the total row, and the alert row.
+
+### 4.2 Row order
+
+1. Six capacity rows  
+2. Epic rows (by `Priority` ascending)  
+3. Total row — `Epic Description` = `Weekly Allocation`, `Budget Bucket` = `Total`  
+4. Alert row — `Epic Description` = `Off Capacity`
+
+### 4.3 Formulas (`write_output_with_formulas`)
+
+`write_output_with_formulas` calls `write_output`, then replaces value cells with formulas.
+
+| Cell | Pattern |
 |---|---|
-| `Epic Description` | ✅ |
-| `Estimation` | ✅ |
-| `Budget Bucket` | ✅ |
-| `Priority` | optional* |
-| `Link` | optional |
-| `Allocation Mode` | optional (`Sprint` / `Uniform` / `Gaps`) |
-| `Type` | optional |
-| `Milestone` | optional |
+| Engineer Net Capacity (per week) | `=<bruto> - <absence>` |
+| Management Net Capacity (per week) | `=<mgmt_cap> - <mgmt_absence>` |
+| `Total Weeks` (capacity + epic rows) | `=SUM(<first_Q_week>:<last_Q_week>)` |
+| `Estimation` on total row | `=SUM(<first_epic_est>:<last_epic_est>)` |
+| `Total Weeks` on total row | `=SUM(<first_epic_tw>:<last_epic_tw>)` |
+| `Weekly Allocation` (per week) | `=SUM(<first_epic_row>:<last_epic_row>)` |
+| `Off Estimate` (epic rows) | `=ABS(<tw> - <estimation>) > 0.05` |
+| `Off Capacity` (per week) | `=ABS(<weekly_alloc> - <eng_net>) > 0.1` |
 
-\* `Priority` is imputed from `Budget Bucket` when blank or absent. See [LOGIC.md](LOGIC.md) — Priority defaults. Explicit values are never overwritten.
-
-### 4.3 Validation Rules
-
-The following cause a hard error (all problems reported together):
-
-1. Engineer capacity config row is missing (`Engineer Capacity (Bruto)` or `Num Engineers`).
-2. Required epic columns (`Epic Description`, `Estimation`, `Budget Bucket`) are missing from the sheet.
-3. `Estimation` values for epics are non-numeric.
-4. `Priority` values that are explicitly provided (non-blank) are non-numeric.
-5. When `Allocation Mode` is non-blank, it is not one of `Sprint`, `Uniform`, `Gaps`.
-
-The following emit a **warning** (processing continues):
-
-6. Per-week bruto is partially specified (some Q-weeks populated, some absent) — emits a warning; missing weeks fall back to the scalar derived from the mean of the available weeks.
+Conditional formatting is applied via openpyxl `FormulaRule`; colours and rules match **[LOGIC.md](LOGIC.md)**.
 
 ---
 
-## 5. Output Table Structure
+## 5. Allocation and overflow
 
-### 5.1 Column Order
+**[LOGIC.md](LOGIC.md)** — *Allocation*, *Overflow*, *Post-allocation checks*.
 
-```
-Budget Bucket | Epic / Capacity Metric | Priority | Estimation | Total Weeks | Off Estimate | [Mon.DD week columns…]
-```
+---
 
-`Off Estimate` is blank for capacity header rows, the total row, and the alert row.
+## 6. Python API (`src/planzen/`)
 
-### 5.2 Row Order
+`core_logic.py` does **no** file I/O. Package layout: **[ARCHITECTURE.md](ARCHITECTURE.md)**.
 
-1. 6 capacity header rows
-2. Epic rows (sorted by `Priority` ascending)
-3. Total row — label `Weekly Allocation`, `Budget Bucket` = `Total`
-4. Alert row — label `Off Capacity`
-
-For capacity header row labels, computations, and per-week mode behaviour see [LOGIC.md](LOGIC.md) — Output table structure.
-
-### 5.3 Key Column Semantics
-
-| Column | Notes |
+| Function / type | Role |
 |---|---|
-| `Total Weeks` | Q-only sum: counts only the 13 requested-quarter weeks, even when overflow columns are present |
-| `Off Estimate` | `True` when `abs(Total Weeks − Estimation) > 0.05` (Q-only comparison) |
-| `Off Capacity` (alert row) | `True` per week when `abs(Weekly Allocation − Engineer Net Capacity) > 0.1` |
+| `read_input(path, quarter) -> (DataFrame, CapacityConfig)` | Parse sheet; build config (incl. per-week dicts). |
+| `validate_input_file(path, quarter?) -> list[str]` | Validation errors; empty = ok. |
+| `build_output_table(epics_df, capacity, start, end) -> DataFrame` | Full output table. |
+| `validate_allocation(df, capacity, mondays) -> list[str]` | Post-allocation checks. |
+| `write_output(df, path)` | Values only; internal; used inside `write_output_with_formulas`. |
+| `write_output_with_formulas(df, path, n_base_weeks)` | Values + formulas; `n_base_weeks` = Q week count for `Total Weeks` sums. |
 
-### 5.4 Formulas File
-
-`write_output_with_formulas` calls `write_output` first, then reopens the file and replaces cells with Excel formulas:
-
-| Cell | Formula pattern |
-|---|---|
-| `Engineer Net Capacity` (each week) | `=<bruto_cell> - <absence_cell>` |
-| `Management Net Capacity` (each week) | `=<mgmt_cap_cell> - <mgmt_absence_cell>` |
-| `Total Weeks` (capacity rows + each epic row) | `=SUM(<first_week>:<last_Q_week>)` — Q-only |
-| `Estimation` (Total row) | `=SUM(<first_epic>:<last_epic>)` |
-| `Total Weeks` (Total row) | `=SUM(<first_epic_tw>:<last_epic_tw>)` |
-| `Weekly Allocation` (each week) | `=SUM(<first_epic_row>:<last_epic_row>)` |
-| `Off Estimate` (each epic row) | `=ABS(<total_weeks> - <estimation>) > 0.05` |
-| `Off Capacity` (each week) | `=ABS(<weekly_alloc> - <eng_net>) > 0.1` |
+**`CapacityConfig`:** scalars `eng_bruto`, `eng_absence`, `eng_net`, `mgmt_capacity`, `mgmt_absence`, `mgmt_net`; optional `eng_bruto_by_week`, `eng_absence_by_week`; `q_weeks` when per-week absence must distinguish Q from overflow. Accessors `eng_bruto_for`, `eng_absence_for`, `eng_net_for` — Q vs overflow behaviour per **[LOGIC.md](LOGIC.md)** (*Overflow*).
 
 ---
 
-## 6. Conditional Formatting
-
-Applied to the output file via openpyxl `FormulaRule`. See [LOGIC.md](LOGIC.md) for full colour table and rule details.
-
-Summary:
-- `Off Estimate = TRUE` → red fill (`#FFC7CE`) + red font (`#9C0006`)
-- `Off Capacity = TRUE` → same red
-- Each `Budget Bucket` value maps to a full-row background colour (8 values defined)
-
----
-
-## 7. Allocation Algorithm
-
-See [LOGIC.md](LOGIC.md) — Allocation algorithm and Overflow.
-
----
-
-## 8. Architecture
-
-```
-planzen/
-├── src/planzen/
-│   ├── cli.py          # Entrypoint: parse args, call excel_io + core_logic, write output
-│   ├── core_logic.py   # Pure business logic (no file I/O): build_output_table, validate_allocation
-│   ├── excel_io.py     # All file I/O: validate_input_file, read_input, write_output, write_output_with_formulas
-│   └── config.py       # Constants: column names, labels, fiscal quarters, allocation mode constants
-├── tests/
-│   ├── test_core_logic.py
-│   ├── test_excel_io.py
-│   └── test_integration.py
-└── data/examples/
-    ├── input_example.xlsx
-    └── input_example_realistic_messy.xlsx
-```
-
-**Invariant**: `core_logic.py` is pure — no file I/O.
-
-### 8.1 Key API
-
-**`read_input(path: Path, quarter: int) -> tuple[DataFrame, CapacityConfig]`**  
-Reads and validates the input file; builds the `CapacityConfig` (including per-week dicts when applicable).
-
-**`validate_input_file(path: Path, quarter: int | None = None) -> list[str]`**  
-Returns a list of human-readable error strings (empty = valid).
-
-**`build_output_table(epics_df, capacity, start, end) -> DataFrame`**  
-Pure: returns the full output DataFrame with capacity rows, epic rows, total row, alert row.
-
-**`validate_allocation(df, capacity, mondays) -> list[str]`**  
-Post-allocation invariant checks; returns violations (empty = valid).
-
-**`write_output(df, path)`** — internal helper: writes values to disk. Called by `write_output_with_formulas` as a first step (formulas are overlaid on top); not called directly by the CLI or the web backend.  
-**`write_output_with_formulas(df, path, n_base_weeks)`** — formulas file; `n_base_weeks` limits Total Weeks SUM to Q-only.
-
-**`CapacityConfig`** (dataclass):
-- Scalar fields: `eng_bruto`, `eng_absence`, `eng_net`, `mgmt_capacity`, `mgmt_absence`, `mgmt_net`
-- Per-week dicts (optional): `eng_bruto_by_week`, `eng_absence_by_week`
-- `q_weeks: frozenset[date] | None` — the primary quarter's Mondays; used to distinguish Q weeks from overflow weeks when per-week absence data is provided
-- Accessors: `eng_bruto_for(monday)`, `eng_absence_for(monday)`, `eng_net_for(monday)`
-  - Within Q: return per-week value, or scalar fallback (bruto) / 0 (absence) for missing weeks
-  - Overflow weeks (beyond the primary quarter): bruto falls back to scalar (Q mean); absence uses the default formula (`bruto × ABSENCE_PW_PER_PERSON`) so capacity is realistic
-
----
-
-## 9. Key Constants (`config.py`)
+## 7. Constants (`config.py`)
 
 ```python
-MAX_WEEKLY_ALLOC_PW    = 2.0      # cap per epic per week (Sprint and Gaps modes)
-DEFAULT_MGMT_CAPACITY_PW = 1.0   # used when Management Capacity row is absent
+MAX_WEEKLY_ALLOC_PW    = 2.0
+DEFAULT_MGMT_CAPACITY_PW = 1.0
 
 ALLOC_MODE_SPRINT  = "Sprint"
 ALLOC_MODE_UNIFORM = "Uniform"
@@ -216,96 +130,75 @@ VALID_ALLOC_MODES  = frozenset({"Sprint", "Uniform", "Gaps"})
 ABSENCE_DAYS_PER_YEAR  = 37
 WORKING_WEEKS_PER_YEAR = 52
 WORKING_DAYS_PER_WEEK  = 5
-# → ABSENCE_PW_PER_PERSON ≈ 0.1423 PW/person/week
+# → ABSENCE_PW_PER_PERSON ≈ 0.1423
 
 OFF_ESTIMATE_THRESHOLD = 0.05
 OFF_CAPACITY_THRESHOLD = 0.1
 
-# Shared by CLI and web backend:
-BUCKET_PRIORITY: dict[str, int]          # Budget Bucket → default Priority (see LOGIC.md)
-BUCKET_COLORS: list[tuple[str, str]]     # Budget Bucket → Excel fill colour (hex)
+BUCKET_PRIORITY: dict[str, int]
+BUCKET_COLORS: list[tuple[str, str]]
 ```
 
 ---
 
-## 10. Tests to Cover
+## 8. Tests to cover
 
-### `test_core_logic.py`
+### `tests/` — core + Excel + CLI
 
-- `get_quarter_dates`: correct start/end for all 4 quarters; raises for invalid quarter
-- `_mondays_in_range`: correct count and values; Q1 labels use `Mon.D` format (no leading zero)
-- `CapacityConfig` scalar mode: properties return correct derived values
-- `CapacityConfig` per-week mode: accessors return per-week values; fall back to scalar for missing Q weeks; overflow weeks use scalar bruto and default-formula absence
-- `build_output_table`: 6 capacity rows at top; epics sorted by priority; `Total Weeks` Q-only; `Off Estimate` bool; `Off Capacity` row last; correct column order
-- Allocation modes: Sprint fills sequentially at ≤ 2.0 PW/week; Uniform spreads evenly; Gaps allows 0-week holes
-- Overflow: triggers when `Σ(Estimation) > Σ(eng_net_for(m))` over quarter; adds 13 columns; `Total Weeks` and `Off Estimate` still use Q-only weeks
-- **Q-first allocation**: high-priority Uniform epic with `estimation/n_weeks` rounding deficit must be fully allocated within Q (via Q top-up pass) even when lower-priority epics cause overflow — `Off Estimate = False`, no overflow spill
-- `validate_allocation`: passes on valid output; returns violations on over-allocation or negative cells
-- `Off Estimate = True` when epic can't be fully allocated in Q; `= False` when exactly allocated
-- Epic with 0 PW estimation → allocated 0, `Off Estimate = False`
-- Per-week bruto varies → capacity rows vary week by week; overflow check uses per-week sum
+- **Quarters:** `get_quarter_dates` all four; invalid quarter raises; `_mondays_in_range` count/labels (Q1 `Mon.D` without leading zero on day).
+- **`CapacityConfig`:** scalar mode; per-week mode, fallbacks, overflow behaviour per LOGIC.
+- **`build_output_table`:** six capacity rows; epics sorted; `Total Weeks` Q-only; `Off Estimate` / `Off Capacity`; column order.
+- **Modes:** Sprint cap 2.0 sequential; Uniform spread; Gaps allows zeros without sequential rule.
+- **Overflow:** when Σ estimation > Σ Q net; +13 columns; `Total Weeks` / `Off Estimate` still Q-only.
+- **Q top-up:** Uniform rounding shortfall in Q filled in Q before overflow when applicable.
+- **`validate_allocation`:** clean pass; violations on over-allocation / negatives.
+- **`validate_input_file` / `read_input`:** errors for missing columns / bad mode; blank Priority ok; partial per-week bruto; config rows via Budget Bucket / Type / Epic Description; priority imputation; unnamed columns dropped; rows without Budget Bucket dropped; per-week-only bruto row.
+- **`write_output` / `write_output_with_formulas`:** formulas and SUM ranges as in §4.3.
+- **`test_integration.py`:** CLI success; validation → exit 1 and no file; messy sample runs.
 
-### `test_excel_io.py`
+**Edge cases:** estimation `0`; exact Q fit; single epic > Q capacity; absence > bruto → net ≥ 0 treatment; `Num Engineers` without bruto row; per-week absence NaN → 0 in Q; per-week + overflow bruto/absence rules; Uniform rounding in overflow scenario.
 
-- `validate_input_file`: returns errors for missing columns, invalid allocation mode; no error for blank Priority; no error for partial per-week bruto (missing weeks use scalar fallback)
-- `read_input`: returns `(epics_df, CapacityConfig)`; per-week fields populated when `D.M.` or `D-Mon` week columns present; scalar absence converted to PW/week
-- **Config row detection**: config rows identified by Budget Bucket (primary), Type, or Epic Description; case-insensitive; parenthetical suffixes stripped. Both formats common: classic files use Budget Bucket column, newer files may use Epic Description column.
-- **Priority imputation**: blank or absent Priority is filled from `BUCKET_PRIORITY`; unknown buckets → 999; explicit values never overwritten
-- **Unnamed column dropping**: columns named `Unnamed: N` (headerless) are silently dropped before any processing
-- **Budget Bucket filtering**: epic rows with no `Budget Bucket` value are silently discarded (handles annotation rows, computed totals, decorative headers)
-- **Per-week-only bruto**: `Engineer Capacity (Bruto)` row with values only in week columns (no scalar Estimation) is accepted; `num_engineers` derived from week mean as scalar fallback
-- `write_output`: file created; numeric values; conditional formatting applied (internal helper, tested directly)
-- `write_output_with_formulas`: `=SUM(first:last_Q_week)` in Total Weeks (capacity + epic rows); Net Capacity rows have subtraction formula; Off Estimate has `ABS`; Off Capacity has `ABS`; SUM references correct epic rows for 1, 3, 5 epics
+### `web/backend/tests/`
 
-### `test_integration.py`
+- **Bridge:** `epics_df_from_models`; `capacity_config_from_model` / `_to_model`; `allocation_df_to_rows`.
+- **Routes:** `GET /api/health`; upload with fixture xlsx + quarter; get/put/delete session; `POST …/compute` returns rows and week labels; `GET …/export` returns spreadsheet MIME type. Use `PLANZEN_SESSION_DIR` on a temp dir.
 
-- CLI runs end-to-end: one output file created; exit code 0
-- Validation errors cause exit code 1 and no output files
-- Realistic messy input file runs without errors
+### `web/frontend/`
 
-### Edge Cases
+- **`src/api/client.test.ts`:** each client function — method, URL, body.
+- **`src/api/client.error.test.ts`:** non-OK responses propagate.
+- **`src/store/sessionStore.test.ts`:** session id state.
+- **Components:** `UploadView`, `CapacityEditor`, `EpicsTable`, `AllocationPreview`, `ExportBar` — behaviours described in **[ARCHITECTURE.md](ARCHITECTURE.md)** §6 (smoke/debounce/export).
 
-- Epic with `Estimation = 0` → no allocation, `Off Estimate = False`
-- All epics fit exactly in Q → no overflow, 13 week columns
-- Single epic with `Estimation > Q capacity` → overflow, `Off Estimate = True`
-- Absence > Bruto → net capacity = 0 or negative (treat as 0)
-- `Num Engineers` present but no `Engineer Capacity (Bruto)` → uses `Num Engineers × 1.0`
-- Per-week absence with NaN weeks → defaults to 0 PW for those weeks (within Q)
-- Per-week bruto with partial weeks → warns; missing weeks fall back to scalar (mean of available weeks)
-- Per-week capacity + overflow → overflow bruto uses Q mean (scalar), overflow absence uses default formula (`bruto × ABSENCE_PW_PER_PERSON`)
-- Uniform epic with `est % n_weeks ≠ 0` (rounding gap) in overflow scenario → fully allocated in Q, no spill to overflow weeks
+**Vitest:** `environment: 'jsdom'`, `setupFiles` mocks `ResizeObserver` for AG Grid.
 
 ---
 
-## 11. Web API
+## 9. Web API (`web/backend/`)
 
-### 11.1 Technology
+Stack, CORS, bridge role, session files, and UI: **[ARCHITECTURE.md](ARCHITECTURE.md)**. **Routes and JSON shapes are defined here only.**
 
-- Python FastAPI, Pydantic v2, uvicorn
-- Shares the same `uv` environment as the CLI (same `pyproject.toml`)
-- Lives in `web/backend/`; imports `planzen.*` as an installed package (no `sys.path` hacks)
-- Session state persisted as JSON files in `tmp/sessions/{session_id}.json`
-- `PLANZEN_SESSION_DIR` env var overrides the session directory (used in tests)
+Run locally: `uv run uvicorn main:app --app-dir web/backend --reload --port 8000`
 
-Run: `uv run uvicorn main:app --app-dir web/backend --reload --port 8000`
+Session JSON path: `{PLANZEN_SESSION_DIR or tmp/sessions}/{uuid}.json`. `PLANZEN_SESSION_DIR` overrides the directory (tests).
 
-### 11.2 Pydantic Models
+### 9.1 Models
 
 ```python
 class CapacityConfigModel(BaseModel):
-    eng_bruto: float            # FTE
-    eng_absence: float          # PW/week
-    mgmt_capacity: float        # FTE
-    mgmt_absence: float         # PW/week
-    eng_bruto_by_week: dict[str, float] = {}   # "Mar.30" → PW/week
-    eng_absence_by_week: dict[str, float] = {} # "Mar.30" → PW/week
+    eng_bruto: float
+    eng_absence: float
+    mgmt_capacity: float
+    mgmt_absence: float
+    eng_bruto_by_week: dict[str, float] = {}
+    eng_absence_by_week: dict[str, float] = {}
 
 class EpicModel(BaseModel):
     epic_description: str
     estimation: float
     budget_bucket: str
     priority: float
-    allocation_mode: str = "Sprint"   # Sprint | Uniform | Gaps
+    allocation_mode: str = "Sprint"
     link: str = ""
     type: str = ""
     milestone: str = ""
@@ -316,7 +209,7 @@ class SessionState(BaseModel):
     quarter: int
     capacity: CapacityConfigModel
     epics: list[EpicModel]
-    manual_overrides: dict[str, dict[str, float]] = {}  # epic_description → week_label → PW
+    manual_overrides: dict[str, dict[str, float]] = {}
 
 class AllocationRow(BaseModel):
     label: str
@@ -335,205 +228,23 @@ class ComputeResponse(BaseModel):
     validation_errors: list[str] = []
 ```
 
-### 11.3 API Endpoints
+### 9.2 Routes
 
-All routes are prefixed `/api`.
+Prefix: `/api`.
 
-| Method | Path | Request | Response | Notes |
-|---|---|---|---|---|
-| GET | `/health` | — | `{"status": "ok"}` | Health check |
-| POST | `/sessions/upload` | multipart: `file` (xlsx), `quarter` (int) | `SessionState` | Calls `validate_input_file` then `read_input`; returns 422 with error list on validation failure |
-| GET | `/sessions` | — | `list[SessionState]` | Lists all saved sessions |
-| GET | `/sessions/{id}` | — | `SessionState` | 404 if not found |
-| DELETE | `/sessions/{id}` | — | 204 | Deletes session file |
-| PUT | `/sessions/{id}/capacity` | `CapacityConfigModel` | `SessionState` | Replaces capacity; persists |
-| PUT | `/sessions/{id}/epics` | `list[EpicModel]` | `SessionState` | Replaces epics list; persists |
-| PATCH | `/sessions/{id}/overrides` | `dict[str, dict[str, float]]` | `SessionState` | Merges manual overrides; persists |
-| POST | `/sessions/{id}/compute` | — | `ComputeResponse` | Runs `build_output_table`; applies manual overrides as display post-processing; runs `validate_allocation` |
-| GET | `/sessions/{id}/export` | — | `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` | Runs `write_output_with_formulas`; streams the xlsx; cleans up temp files |
+| Method | Path | Request | Response |
+|---|---|---|---|
+| GET | `/health` | — | `{"status": "ok"}` |
+| POST | `/sessions/upload` | multipart `file`, `quarter` | `SessionState` or 422 |
+| GET | `/sessions` | — | `list[SessionState]` |
+| GET | `/sessions/{id}` | — | `SessionState` |
+| DELETE | `/sessions/{id}` | — | 204 |
+| PUT | `/sessions/{id}/capacity` | `CapacityConfigModel` | `SessionState` |
+| PUT | `/sessions/{id}/epics` | `list[EpicModel]` | `SessionState` |
+| PATCH | `/sessions/{id}/overrides` | nested map | `SessionState` |
+| POST | `/sessions/{id}/compute` | — | `ComputeResponse` |
+| GET | `/sessions/{id}/export` | — | `.xlsx` stream |
 
-### 11.4 Bridge (`bridge.py`)
+`bridge.py` maps JSON ↔ `CapacityConfig` / DataFrames (`capacity_config_from_model`, `capacity_config_to_model`, `epics_df_from_models`, `allocation_df_to_rows`). `POST …/compute` runs `build_output_table`, applies `manual_overrides` to the serialised grid, then `validate_allocation`. `GET …/export` runs the same pipeline and `write_output_with_formulas`.
 
-Thin adapter between JSON models and core_logic types:
-
-- `capacity_config_from_model(model: CapacityConfigModel) -> CapacityConfig` — builds `CapacityConfig`; converts week-label strings (`"Mar.30"`) to `datetime.date` objects for per-week dicts
-- `capacity_config_to_model(config: CapacityConfig, mondays: list[date]) -> CapacityConfigModel` — inverse; converts date keys back to label strings
-- `epics_df_from_models(epics: list[EpicModel]) -> pd.DataFrame` — builds DataFrame with column names from `config.py` constants
-- `allocation_df_to_rows(df, all_week_labels, quarter_week_labels) -> list[AllocationRow]` — serialises the output DataFrame to `AllocationRow` list; `week_values` uses string week labels as keys
-
-### 11.5 Session Persistence (`persistence.py`)
-
-- Sessions stored as `{PLANZEN_SESSION_DIR}/{session_id}.json` (default dir: `tmp/sessions/`)
-- `save_session(state)`, `load_session(id)` (raises HTTP 404 if missing), `list_sessions()`, `delete_session(id)`
-- Session IDs: UUID4
-
-### 11.6 Backend Tests to Cover (`web/backend/tests/`)
-
-**`test_bridge.py`:**
-- `epics_df_from_models`: correct columns and values
-- `capacity_config_from_model`: scalar fields; per-week dict date conversion
-- `capacity_config_to_model`: round-trip preserves scalars
-- `allocation_df_to_rows`: correct `AllocationRow` list with `week_values`
-
-**`test_routes.py`:**
-- `GET /api/health` → 200
-- `POST /api/sessions/upload` with example xlsx + quarter=2 → 200, session_id present, epics non-empty
-- `GET /api/sessions/{id}` → 200
-- `PUT /api/sessions/{id}/capacity` → 200
-- `PUT /api/sessions/{id}/epics` → 200
-- `DELETE /api/sessions/{id}` → 204; subsequent GET → 404
-- `POST /api/sessions/{id}/compute` → 200, rows non-empty, 13+ week_labels
-- `GET /api/sessions/{id}/export` → 200, content-type `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`
-
-Tests use `PLANZEN_SESSION_DIR` env var pointing to a `tmp_path` fixture to avoid polluting `tmp/sessions/`.
-
----
-
-## 12. Web Frontend
-
-### 12.1 Technology
-
-- React 18 + TypeScript (strict mode) + Vite 8
-- Tailwind CSS v4 (via `@tailwindcss/vite` plugin)
-- AG Grid Community v35 — editable data grids
-- TanStack Query v5 — server state (session data)
-- Zustand v5 — UI state (current session ID)
-- react-dropzone — file upload
-- Vitest + React Testing Library + jsdom — tests
-
-Lives in `web/frontend/`. Dev server: `npm run dev` → `http://localhost:5173` (proxies `/api` → `http://localhost:8000`).
-
-### 12.2 TypeScript Types (`src/types/index.ts`)
-
-```typescript
-interface CapacityConfig {
-  eng_bruto: number;
-  eng_absence: number;
-  mgmt_capacity: number;
-  mgmt_absence: number;
-  eng_bruto_by_week: Record<string, number>;
-  eng_absence_by_week: Record<string, number>;
-}
-
-interface Epic {
-  epic_description: string;
-  estimation: number;
-  budget_bucket: string;
-  priority: number;
-  allocation_mode: 'Sprint' | 'Uniform' | 'Gaps';
-  link: string;
-  type: string;
-  milestone: string;
-}
-
-interface SessionSummary { session_id: string; filename: string; quarter: number; }
-interface SessionState extends SessionSummary { capacity: CapacityConfig; epics: Epic[]; manual_overrides: Record<string, Record<string, number>>; }
-
-interface AllocationRow {
-  label: string;
-  budget_bucket: string;
-  priority: number | null;
-  estimation: number | null;
-  total_weeks: number | null;
-  off_estimate: boolean | null;
-  week_values: Record<string, number | boolean | null>;
-}
-
-interface ComputeResponse {
-  session_id: string;
-  rows: AllocationRow[];
-  week_labels: string[];
-  has_overflow: boolean;
-  validation_errors: string[];
-}
-```
-
-### 12.3 API Client (`src/api/client.ts`)
-
-Typed `fetch` wrappers for all backend endpoints. All functions are async and throw on non-OK responses.
-
-| Function | Method + Path |
-|---|---|
-| `uploadSession(file, quarter)` | POST `/api/sessions/upload` (FormData) |
-| `listSessions()` | GET `/api/sessions` |
-| `getSession(id)` | GET `/api/sessions/{id}` |
-| `deleteSession(id)` | DELETE `/api/sessions/{id}` |
-| `updateCapacity(id, capacity)` | PUT `/api/sessions/{id}/capacity` |
-| `updateEpics(id, epics)` | PUT `/api/sessions/{id}/epics` |
-| `updateOverrides(id, overrides)` | PATCH `/api/sessions/{id}/overrides` |
-| `computeAllocation(id)` | POST `/api/sessions/{id}/compute` |
-| `exportSession(id)` | GET `/api/sessions/{id}/export` → `Blob` |
-
-### 12.4 State Management
-
-- **Zustand `sessionStore`**: holds `currentSessionId: string | null` and `setCurrentSessionId`. Determines which view is shown (upload vs. editor).
-- **TanStack Query**: fetches `['session', sessionId]` in `PlanEditor`; invalidated after capacity/epic updates.
-- **Local component state**: `computeResult: ComputeResponse | null` and `isComputing: boolean` in `PlanEditor`.
-
-### 12.5 Component Specifications
-
-**`App.tsx`** — state-based routing: if `currentSessionId` is null, renders `<UploadView>`; otherwise renders `<PlanEditor>`.
-
-**`UploadView`**
-- react-dropzone file zone (accepts `.xlsx` only)
-- Quarter selector (Q1–Q4)
-- Upload button → calls `uploadSession` → on success: sets `currentSessionId`
-- Existing sessions list (from `listSessions()`) with Load button per row
-
-**`PlanEditor`** — orchestrator for the edit session:
-- Fetches `SessionState` via TanStack Query
-- Holds `computeResult` + `isComputing` state
-- `recompute()`: calls `computeAllocation`, updates `computeResult`
-- Triggers `recompute()` once on mount (after session loads)
-- Renders in order: header (filename, quarter, Back button, "Computing…" spinner), `<CapacityEditor>`, `<EpicsTable>`, `<AllocationPreview>`
-- `onCapacityChanged` / `onEpicsChanged` callbacks both call `recompute()`
-
-**`CapacityEditor`** — props: `{ sessionId, capacity, onCapacityChanged }`
-- Two-column form (Engineer | Management): bruto (FTE) + absence (PW/week) for each
-- Debounced 500 ms: calls `updateCapacity` then `onCapacityChanged`
-- Collapsible per-week overrides section (read-only display when `eng_bruto_by_week` / `eng_absence_by_week` are non-empty)
-
-**`EpicsTable`** — props: `{ sessionId, epics, onEpicsChanged, debounceMs? }`
-- AG Grid editable table with columns: priority, epic_description, estimation, budget_bucket, allocation_mode (dropdown: Sprint/Uniform/Gaps), milestone, type, link, delete action
-- "Add Epic" button: appends row with defaults (priority = 0, estimation = 1.0, allocation_mode = "Sprint")
-- Row drag-to-reorder (`rowDragManaged`): reorders the visual list without modifying priority values
-- Duplicate priority detection: when two or more epics share a priority value, an amber info banner is shown listing the duplicate values
-- Debounced 500 ms (0 ms in tests via `debounceMs` prop): calls `updateEpics` then `onEpicsChanged`
-
-**`AllocationPreview`** — props: `{ sessionId, computeResponse, onOverrideChanged }`
-- Null state: "No allocation computed yet."
-- Validation errors: red banner listing errors
-- Overflow: yellow banner "⚠ Overflow: some epics extend into Q+1"
-- AG Grid table: pinned `label` column + dynamic week columns from `week_labels`
-- `editable` only for week cells in epic rows (not capacity rows, not total/alert rows)
-- Cell styling: `off_estimate = true` → `#FFC7CE` / `#9C0006`; Off Capacity row week = true → same; Budget Bucket row background colours matching Excel output (see LOGIC.md — Conditional Formatting)
-- On week cell edit: debounced 300 ms → `updateOverrides` → `onOverrideChanged`
-
-**`ExportBar`** — props: `{ sessionId, filename, quarter }`
-- "Download Export" button
-- On click: calls `exportSession` → creates object URL → triggers `<a download>` click → revokes URL
-- Shows loading state ("Exporting…") and error message on failure
-
-### 12.6 Frontend Tests to Cover
-
-**`src/api/client.test.ts`**: `uploadSession`, `listSessions`, `getSession`, `deleteSession`, `updateCapacity`, `updateEpics`, `computeAllocation`, `exportSession` — each verifies correct HTTP method, URL, and body via `vi.stubGlobal('fetch', ...)`.
-
-**`src/api/client.error.test.ts`**: error propagation on 4xx/5xx responses.
-
-**`src/store/sessionStore.test.ts`**: initial state null, `setCurrentSessionId` updates and resets.
-
-**`src/components/UploadView.test.tsx`**: renders inputs; shows error when no file selected; calls `uploadSession` with correct args.
-
-**`src/components/CapacityEditor.test.tsx`**: renders all four fields; `updateCapacity` called after debounce; `onCapacityChanged` fires after successful save.
-
-**`src/components/EpicsTable.test.tsx`**: renders N rows (mock ag-grid-react); Add Epic button exists; `updateEpics` called on add; `onEpicsChanged` fires after save. Uses `debounceMs={0}` + `fireEvent.click` to avoid fake-timer/userEvent incompatibility.
-
-**`src/components/AllocationPreview.test.tsx`**: empty state text; row count matches data; overflow banner; validation error banner.
-
-**`src/components/ExportBar.test.tsx`**: renders button; shows metadata; triggers `exportSession` on click; shows error on failure; button disabled during export.
-
-### 12.7 Vite Configuration
-
-- Proxy: `/api` → `http://localhost:8000` (dev only)
-- Vitest: `environment: 'jsdom'`, `globals: true`, `setupFiles: ['./src/test-setup.ts']`
-- `test-setup.ts`: imports `@testing-library/jest-dom`; mocks `global.ResizeObserver` for AG Grid
+Frontend TypeScript types mirror these models under `web/frontend/src/types/`; the HTTP client is `web/frontend/src/api/client.ts` (same paths as the table above).
