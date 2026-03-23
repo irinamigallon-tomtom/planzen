@@ -976,10 +976,11 @@ def test_formulas_file_has_conditional_formatting_rules(formulas_file: Path) -> 
 
 
 # ---------------------------------------------------------------------------
-# Per-week capacity: read_input with D.M. week columns
+# Per-week capacity: read_input with D.M. and D-Mon week columns
 # ---------------------------------------------------------------------------
 
-_PER_WEEK_FIXTURE = Path(__file__).parent / "data" / "input_per_week_absence.xlsx"
+_PER_WEEK_FIXTURE      = Path(__file__).parent / "data" / "input_per_week_absence.xlsx"
+_PER_WEEK_DMON_FIXTURE = Path(__file__).parent / "data" / "input_per_week_absence_dmon.xlsx"
 
 _Q2_MONDAYS = [
     date(2026, 3, 30) + timedelta(weeks=i) for i in range(13)
@@ -1035,8 +1036,8 @@ def test_per_week_build_output_uses_variable_capacity(tmp_path: Path) -> None:
         assert bruto_row[w] == pytest.approx(3.0), f"Week {w} bruto should be 3.0"
 
 
-def test_partial_per_week_bruto_raises_error(tmp_path: Path) -> None:
-    """If only some Q2 weeks have bruto values, a ValueError is raised."""
+def test_partial_per_week_bruto_warns_and_continues(tmp_path: Path) -> None:
+    """Partial Q2 weeks in bruto row: warns and uses available weeks; scalar from Num Engineers fills the rest."""
     from datetime import date, timedelta
     q2_mondays = [date(2026, 3, 30) + timedelta(weeks=i) for i in range(13)]
     week_cols = [f"{m.day}.{m.month}." for m in q2_mondays]
@@ -1054,8 +1055,14 @@ def test_partial_per_week_bruto_raises_error(tmp_path: Path) -> None:
                  "Priority": 1, "Link": "http://x", "Type": "Feature"})
     p = tmp_path / "partial.xlsx"
     pd.DataFrame(rows).to_excel(p, index=False)
-    with pytest.raises(ValueError, match="partially populated"):
-        read_input(p, 2)
+    _, cap = read_input(p, 2)
+    # Weeks that have data use per-week bruto; others fall back to scalar
+    assert cap.eng_bruto_by_week is not None
+    assert len(cap.eng_bruto_by_week) == 5
+    for monday in q2_mondays[:5]:
+        assert cap.eng_bruto_by_week[monday] == pytest.approx(3.0)
+    # scalar fallback = mean of the 5 weeks = 3.0
+    assert cap.num_engineers == pytest.approx(3.0)
 
 
 # ---------------------------------------------------------------------------
@@ -1316,3 +1323,59 @@ def test_per_week_only_bruto_no_scalar(tmp_path: Path) -> None:
         assert v == pytest.approx(2.0)
     # scalar fallback derived from mean of per-week values
     assert cap.num_engineers == pytest.approx(2.0)
+
+
+# ---------------------------------------------------------------------------
+# Per-week capacity: D-Mon column format (e.g. "30-Mar", "6-Apr")
+# ---------------------------------------------------------------------------
+
+def test_dmon_fixture_loads_bruto_by_week() -> None:
+    """Per-week bruto is extracted from D-Mon columns when all 13 Q2 weeks present."""
+    _, cap = read_input(_PER_WEEK_DMON_FIXTURE, 2)
+    assert cap.eng_bruto_by_week is not None
+    assert len(cap.eng_bruto_by_week) == 13
+    for monday in _Q2_MONDAYS[:6]:
+        assert cap.eng_bruto_by_week[monday] == pytest.approx(2.0)
+    for monday in _Q2_MONDAYS[6:]:
+        assert cap.eng_bruto_by_week[monday] == pytest.approx(3.0)
+
+
+def test_dmon_fixture_loads_absence_by_week() -> None:
+    """Per-week absence is extracted from D-Mon columns; NaN weeks default to 0."""
+    _, cap = read_input(_PER_WEEK_DMON_FIXTURE, 2)
+    assert cap.eng_absence_by_week is not None
+    assert len(cap.eng_absence_by_week) == 13
+    for i in [4, 9, 11]:
+        assert cap.eng_absence_by_week[_Q2_MONDAYS[i]] == pytest.approx(0.0)
+
+
+def test_dmon_fixture_eng_net_for_varies_by_week() -> None:
+    """eng_net_for returns different values for different weeks with D-Mon columns."""
+    _, cap = read_input(_PER_WEEK_DMON_FIXTURE, 2)
+    # week 0: bruto=2.0, absence=0.1 → net=1.9
+    assert cap.eng_net_for(_Q2_MONDAYS[0]) == pytest.approx(1.9)
+    # week 6: bruto=3.0, absence=0.0 → net=3.0
+    assert cap.eng_net_for(_Q2_MONDAYS[6]) == pytest.approx(3.0)
+
+
+def test_partial_per_week_bruto_warns_and_continues_dmon(tmp_path: Path) -> None:
+    """Partial D-Mon bruto columns (only some weeks): warns and continues with available data."""
+    q2_mondays = [date(2026, 3, 30) + timedelta(weeks=i) for i in range(13)]
+    week_cols = [f"{m.day}-{m.strftime('%b')}" for m in q2_mondays]
+    rows = [
+        {"Budget Bucket": "Num Engineers", "Estimation": 3.0,
+         "Epic Description": "", "Priority": "", "Link": "", "Type": ""},
+    ]
+    bruto_row = {"Budget Bucket": "Engineer Capacity (Bruto)", "Estimation": "",
+                 "Epic Description": "", "Priority": "", "Link": "", "Type": ""}
+    for w in week_cols[:5]:
+        bruto_row[w] = 3.0
+    rows.append(bruto_row)
+    rows.append({"Budget Bucket": "Platform", "Epic Description": "X", "Estimation": 2.0,
+                 "Priority": 1, "Link": "http://x", "Type": "Feature"})
+    p = tmp_path / "partial_dmon.xlsx"
+    pd.DataFrame(rows).to_excel(p, index=False)
+    _, cap = read_input(p, 2)
+    assert cap.eng_bruto_by_week is not None
+    assert len(cap.eng_bruto_by_week) == 5
+    assert cap.num_engineers == pytest.approx(3.0)

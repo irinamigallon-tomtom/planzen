@@ -22,7 +22,7 @@ Config rows are identified by a known label appearing in **any of** the `Budget 
 
 In practice both formats are common: older files store config labels in `Budget Bucket`; newer files may store them in `Epic Description` with the `Budget Bucket` cell left blank.
 
-The `Estimation` column holds the scalar numeric value for config rows. Per-week values may also be provided via `D.M.` week columns (see Per-week capacity mode below).
+The `Estimation` column holds the scalar numeric value for config rows. Per-week values may also be provided via week columns (see Per-week capacity mode below).
 
 | Config label | `Estimation` value | Unit | Required? |
 |---|---|---|---|
@@ -40,9 +40,12 @@ When absence is omitted the default formula applies: **37 days/year** (30 vacati
 
 ### Per-week capacity mode
 
-When the input file contains week columns formatted as `D.M.` (e.g. `30.3.`, `6.4.`) that correspond to the quarter's Mondays, per-week capacity values are read directly from those columns.
+When the input file contains week columns that correspond to the quarter's Mondays, per-week capacity values are read directly from those columns. Two header formats are recognised:
 
-**`Engineer Capacity (Bruto)` row** — if values are present in week columns, they are used as the per-week bruto (PW/week). This is **all-or-nothing**: all 13 Q-weeks must have values, or none. A partial set (some weeks present, some absent) is a **hard error**. When per-week values are present, the scalar `Estimation` on that row is ignored.
+* **`D.M.`** — e.g. `30.3.`, `6.4.`
+* **`D-Mon`** — e.g. `30-Mar`, `6-Apr`
+
+**`Engineer Capacity (Bruto)` row** — if values are present in week columns, they are used as the per-week bruto (PW/week). Weeks without a value fall back to the scalar derived from the mean of the weeks that do have values. When per-week values are present, the scalar `Estimation` on that row is ignored.
 
 **`Engineer Absence` row** — if values are present in week columns, they are used as the per-week absence (PW/week, not days). Missing or NaN weeks default to **0 PW** (lenient). When any per-week absence values are present, the scalar `Estimation` on that row is ignored.
 

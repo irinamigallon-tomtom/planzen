@@ -122,7 +122,7 @@ Identified by a known label in the **`Budget Bucket`** column (checked first), t
 
 When absence is omitted the tool defaults to **37 days/year** ÷ 52 ÷ 5 ≈ 0.142 PW/person/week.
 
-**Per-week capacity:** The input may also include columns labelled in `D.M.` format (e.g. `30.3.`, `6.4.`). When the `Engineer Capacity (Bruto)` row has values in all quarter week columns, those override the scalar `Estimation` value week-by-week. Absence is lenient: missing weeks default to 0. See `LOGIC.md` for details.
+**Per-week capacity:** The input may also include week columns labelled in `D.M.` format (e.g. `30.3.`, `6.4.`) or `D-Mon` format (e.g. `30-Mar`, `6-Apr`). When the `Engineer Capacity (Bruto)` row has values in all quarter week columns, those override the scalar `Estimation` value week-by-week. Absence is lenient: missing weeks default to 0. See `LOGIC.md` for details.
 
 ### Epic columns
 

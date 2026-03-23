@@ -56,7 +56,7 @@ Both formats are common: classic files put the config label in the `Budget Bucke
 
 See [LOGIC.md](LOGIC.md) for the full list of recognised labels, required/optional status, units, default values, and fuzzy matching rules.
 
-The input file may also contain week columns in `D.M.` format (e.g. `30.3.`, `6.4.`) for per-week engineer capacity and absence distribution. See [LOGIC.md](LOGIC.md) — Per-week capacity mode.
+The input file may also contain week columns for per-week engineer capacity and absence distribution. Two header formats are recognised: **`D.M.`** (e.g. `30.3.`, `6.4.`) and **`D-Mon`** (e.g. `30-Mar`, `6-Apr`). See [LOGIC.md](LOGIC.md) — Per-week capacity mode.
 
 ### 4.2 Epic Columns
 
@@ -86,7 +86,7 @@ The following cause a hard error (all problems reported together):
 3. `Estimation` values for epics are non-numeric.
 4. `Priority` values that are explicitly provided (non-blank) are non-numeric.
 5. When `Allocation Mode` is non-blank, it is not one of `Sprint`, `Uniform`, `Gaps`.
-6. Per-week bruto is partially specified (some Q-weeks populated, some absent) — must be all-or-nothing.
+6. Per-week bruto is partially specified (some Q-weeks populated, some absent) — missing weeks use the scalar fallback derived from the available weeks' mean.
 
 ---
 
@@ -241,8 +241,8 @@ BUCKET_COLORS: list[tuple[str, str]]     # Budget Bucket → Excel fill colour (
 
 ### `test_excel_io.py`
 
-- `validate_input_file`: returns errors for missing columns, invalid allocation mode, partial per-week bruto; no error for blank Priority; no error for per-week-only bruto (all Q weeks populated)
-- `read_input`: returns `(epics_df, CapacityConfig)`; per-week fields populated when D.M. columns present; scalar absence converted to PW/week
+- `validate_input_file`: returns errors for missing columns, invalid allocation mode; no error for blank Priority; no error for partial per-week bruto (missing weeks use scalar fallback)
+- `read_input`: returns `(epics_df, CapacityConfig)`; per-week fields populated when `D.M.` or `D-Mon` week columns present; scalar absence converted to PW/week
 - **Config row detection**: config rows identified by Budget Bucket (primary), Type, or Epic Description; case-insensitive; parenthetical suffixes stripped. Both formats common: classic files use Budget Bucket column, newer files may use Epic Description column.
 - **Priority imputation**: blank or absent Priority is filled from `BUCKET_PRIORITY`; unknown buckets → 999; explicit values never overwritten
 - **Unnamed column dropping**: columns named `Unnamed: N` (headerless) are silently dropped before any processing
@@ -265,7 +265,7 @@ BUCKET_COLORS: list[tuple[str, str]]     # Budget Bucket → Excel fill colour (
 - Absence > Bruto → net capacity = 0 or negative (treat as 0)
 - `Num Engineers` present but no `Engineer Capacity (Bruto)` → uses `Num Engineers × 1.0`
 - Per-week absence with NaN weeks → defaults to 0 PW for those weeks
-- Per-week bruto with partial weeks → hard validation error
+- Per-week bruto with partial weeks → warns; missing weeks fall back to scalar (mean of available weeks)
 - Uniform epic with `est % n_weeks ≠ 0` (rounding gap) in overflow scenario → fully allocated in Q, no spill to overflow weeks
 
 ---
