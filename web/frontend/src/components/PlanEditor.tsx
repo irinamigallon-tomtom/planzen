@@ -5,6 +5,7 @@ import { getSession, computeAllocation } from '../api/client';
 import { CapacityEditor } from './CapacityEditor';
 import { EpicsTable } from './EpicsTable';
 import { AllocationPreview } from './AllocationPreview';
+import { ExportBar } from './ExportBar';
 import type { ComputeResponse } from '../types';
 
 export function PlanEditor() {
@@ -73,6 +74,11 @@ export function PlanEditor() {
                 Computing…
               </span>
             )}
+            <ExportBar
+              sessionId={session.session_id}
+              filename={session.filename}
+              quarter={session.quarter}
+            />
             <button
               type="button"
               onClick={() => setCurrentSessionId(null)}

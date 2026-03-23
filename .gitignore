@@ -33,3 +33,7 @@ htmlcov/
 tmp/
 output
 logs
+
+# Root-level node_modules (concurrently for dev)
+node_modules/
+package-lock.json

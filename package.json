@@ -1,0 +1,9 @@
+{
+  "private": true,
+  "scripts": {
+    "dev": "concurrently --names backend,frontend --prefix-colors blue,green --kill-others-on-fail \"uv run uvicorn main:app --app-dir web/backend --reload --port 8000\" \"npm run dev --prefix web/frontend\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0"
+  }
+}

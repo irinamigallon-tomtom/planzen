@@ -17,20 +17,24 @@ uv run planzen INPUT_FILE -q QUARTER [-o OUTPUT_DIR]
 
 ### Web frontend
 
-**1. Backend** (from repo root):
-
-```bash
-uv run uvicorn main:app --app-dir web/backend --reload --port 8000
-```
-
-**2. Frontend** (separate terminal, from `web/frontend/`):
-
 ```bash
 npm install   # first time only
 npm run dev
 ```
 
-Opens at http://localhost:5173
+This starts both the backend (port 8000) and the frontend (port 5173) in one terminal with colour-coded output. Opens at **http://localhost:5173**.
+
+<details>
+<summary>Start them separately instead</summary>
+
+```bash
+# Terminal 1 — backend
+uv run uvicorn main:app --app-dir web/backend --reload --port 8000
+
+# Terminal 2 — frontend
+cd web/frontend && npm run dev
+```
+</details>
 
 ---
 

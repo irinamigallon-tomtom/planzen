@@ -102,9 +102,13 @@ export function AllocationPreview({
     ];
 
     const weekCols: ColDef[] = computeResponse.week_labels.map((week) => ({
-      field: week,
+      // Do NOT use `field` for week labels — AG Grid treats "." as a nested path
+      // separator (e.g. "Mar.30" → row.Mar.30). Use colId + valueGetter/valueSetter.
+      colId: week,
       headerName: week,
       width: 90,
+      valueGetter: (params) => params.data?.[week],
+      valueSetter: (params) => { params.data[week] = params.newValue; return true; },
       editable: (params) => params.data?._isEpic === true,
       cellStyle: (params) => {
         if (params.data?._isOffCapacity && params.value === true) return OFF_STYLE;
@@ -129,7 +133,8 @@ export function AllocationPreview({
       if (!row._isEpic) return;
 
       const epicLabel = row.label;
-      const week = event.colDef.field as string;
+      // Use colId, not field — week columns use colId because field names contain "."
+      const week = event.column.getColId();
       const value = Number(event.newValue);
       if (isNaN(value)) return;
 
