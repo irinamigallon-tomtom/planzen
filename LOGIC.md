@@ -32,7 +32,7 @@ The `Estimation` column holds the scalar numeric value for config rows. Per-week
 | `Engineer Absence` | e.g. `10` | working days (quarter total) | optional |
 | `Management Absence` | e.g. `4` | working days (quarter total) | optional |
 
-**Engineer capacity precedence**: `Engineer Capacity (Bruto)` is used when present and has an `Estimation` value; otherwise `Num Engineers × 1.0 PW/FTE` is used. Both are checked; bruto takes precedence.
+**Engineer capacity precedence**: per-week values from week columns are used first (when present); otherwise the scalar `Estimation` value on the `Engineer Capacity (Bruto)` row is used; otherwise `Num Engineers × 1.0 PW/FTE` is used as the final fallback.
 
 **Management capacity default**: when `Management Capacity (Bruto)` is absent, management bruto defaults to **1.0 PW/week**.
 
@@ -45,9 +45,11 @@ When the input file contains week columns that correspond to the quarter's Monda
 * **`D.M.`** — e.g. `30.3.`, `6.4.`
 * **`D-Mon`** — e.g. `30-Mar`, `6-Apr`
 
-**`Engineer Capacity (Bruto)` row** — if values are present in week columns, they are used as the per-week bruto (PW/week). Weeks without a value fall back to the scalar derived from the mean of the weeks that do have values. When per-week values are present, the scalar `Estimation` on that row is ignored.
+In some files the week dates appear not as column header strings but as **`datetime` values in a data row** (e.g. when Excel stores dates as date cells in row 3). The loader scans all data rows for a row containing ≥ n−1 datetime values that match the quarter's Mondays; when found, those columns are treated as week columns and the date-header row is dropped from epic processing.
 
-**`Engineer Absence` row** — if values are present in week columns, they are used as the per-week absence (PW/week, not days). Missing or NaN weeks default to **0 PW** (lenient). When any per-week absence values are present, the scalar `Estimation` on that row is ignored.
+**`Engineer Capacity (Bruto)` row** — if values are present in week columns, they are used as the per-week bruto (PW/week). Partial coverage is accepted: missing weeks emit a warning and fall back to the scalar derived from the mean of the weeks that do have values. When per-week values are present, the scalar `Estimation` on that row is ignored.
+
+**`Engineer Absence` row** — if values are present in week columns, they are used as the per-week absence (PW/week, not days). Missing or NaN weeks within the primary quarter default to **0 PW** (lenient). Overflow weeks use the default formula instead (see Overflow → Capacity in overflow weeks). When any per-week absence values are present, the scalar `Estimation` on that row is ignored.
 
 ### Epic columns
 
@@ -194,6 +196,13 @@ When a higher-priority epic is unfinished in the primary quarter (i.e. its `Tota
 ## Overflow
 
 Overflow is automatic: when `Σ(Estimation) > Σ(eng_net_for(week) for week in quarter)` — i.e. the sum of per-week net capacities across the quarter (which may vary week by week) — the allocation window extends into Q+1 (13 additional Mondays). Without overflow, lower-priority epics would be partially allocated and show `Total Weeks < Estimation`. The CLI prints an informational message when overflow occurs.
+
+### Capacity in overflow weeks
+
+When per-week capacity data was provided for the primary quarter, overflow weeks use:
+
+* **Engineer Capacity (Bruto)** — the Q mean (average of all Q per-week bruto values). This is the same scalar already derived as `num_engineers`.
+* **Engineer Absence** — the default formula (`bruto × absence rate`), since Q-specific absence days don't apply to a future quarter.
 
 ---
 

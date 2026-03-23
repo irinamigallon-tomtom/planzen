@@ -633,3 +633,57 @@ def test_high_priority_uniform_epic_fully_allocated_in_Q_when_overflow_occurs() 
         f"High-prio Uniform epic should not spill into overflow weeks, "
         f"but got {overflow_sum:.1f} PW in overflow."
     )
+
+
+def test_overflow_per_week_capacity_uses_average_and_default_absence() -> None:
+    """Overflow weeks use Q-average bruto and default absence, not 0, when per-week data was provided."""
+    from planzen.config import ABSENCE_PW_PER_PERSON, LABEL_ENG_BRUTO, LABEL_ENG_ABSENCE, LABEL_ENG_NET
+
+    q1_start, q1_end = FISCAL_QUARTERS[1]
+    q1_mondays = _mondays_in_range(q1_start, q1_end)
+
+    # Per-week bruto: first half at 4.0, second half at 6.0 → mean = 5.0 (approx)
+    half = len(q1_mondays) // 2
+    bruto_by_week = {m: 4.0 for m in q1_mondays[:half]}
+    bruto_by_week.update({m: 6.0 for m in q1_mondays[half:]})
+    q_mean = sum(bruto_by_week.values()) / len(bruto_by_week)
+
+    # Per-week absence: only first 3 weeks have values; rest should be 0 in Q, default in overflow
+    absence_by_week = {q1_mondays[i]: 0.5 for i in range(3)}
+
+    cap = CapacityConfig(
+        num_engineers=q_mean,
+        num_managers=1.0,
+        eng_bruto_by_week=bruto_by_week,
+        eng_absence_by_week=absence_by_week,
+        q_weeks=frozenset(q1_mondays),
+    )
+
+    # Force overflow by having a huge epic
+    epics = pd.DataFrame([{
+        "Epic Description": "Big Epic", "Estimation": 200.0,
+        "Budget Bucket": "Platform", "Priority": 0,
+        "Type": "Feature", "Link": "",
+    }])
+    df = build_output_table(epics, cap, q1_start, q1_end)
+    week_cols = _week_cols(df)
+    assert len(week_cols) == 26, "Expected overflow"
+
+    bruto_row = df[df[OUT_COL_EPIC] == LABEL_ENG_BRUTO].iloc[0]
+    absence_row = df[df[OUT_COL_EPIC] == LABEL_ENG_ABSENCE].iloc[0]
+    net_row = df[df[OUT_COL_EPIC] == LABEL_ENG_NET].iloc[0]
+
+    # Q weeks: bruto uses per-week values
+    for i, w in enumerate(week_cols[:len(q1_mondays)]):
+        expected_bruto = bruto_by_week[q1_mondays[i]]
+        assert float(bruto_row[w]) == pytest.approx(expected_bruto), f"Q bruto wrong at week {i}"
+
+    # Overflow weeks: bruto should be the Q mean
+    for w in week_cols[len(q1_mondays):]:
+        assert float(bruto_row[w]) == pytest.approx(q_mean), f"Overflow bruto should be Q mean"
+
+    # Overflow absence: should be default formula (bruto × rate), not 0
+    expected_overflow_absence = round(q_mean * ABSENCE_PW_PER_PERSON, 1)
+    for w in week_cols[len(q1_mondays):]:
+        assert float(absence_row[w]) == pytest.approx(expected_overflow_absence), \
+            f"Overflow absence should be default formula, got {absence_row[w]}"

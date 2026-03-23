@@ -62,8 +62,10 @@ class CapacityConfig:
     * **Constant** — provide scalar ``num_engineers`` / ``num_managers`` and
       optional scalar absence values.  Every week gets the same capacity.
     * **Per-week** — provide ``eng_bruto_by_week`` / ``eng_absence_by_week``
-      dicts keyed by Monday ``date``.  When a week is absent from the dict the
-      scalar fallback is used (bruto) or 0 is assumed (absence).
+      dicts keyed by Monday ``date``.  For Q weeks absent from the dict the
+      scalar fallback is used (bruto) or 0 is assumed (absence).  Overflow
+      weeks (beyond the primary quarter) use the scalar fallback for bruto
+      and the default formula (bruto × absence rate) for absence.
 
     Net capacity for a given week: ``eng_bruto_for(w) − eng_absence_for(w)``.
     """
@@ -77,6 +79,10 @@ class CapacityConfig:
     eng_bruto_by_week: dict[date, float] | None = None
     eng_absence_by_week: dict[date, float] | None = None
 
+    # Primary quarter weeks — used to distinguish Q weeks from overflow weeks
+    # when per-week absence data is provided.
+    q_weeks: frozenset[date] | None = None
+
     # --- per-week accessor methods (used throughout allocation logic) ---
 
     def eng_bruto_for(self, week: date) -> float:
@@ -86,7 +92,13 @@ class CapacityConfig:
 
     def eng_absence_for(self, week: date) -> float:
         if self.eng_absence_by_week is not None:
-            return self.eng_absence_by_week.get(week, 0.0)
+            if week in self.eng_absence_by_week:
+                return self.eng_absence_by_week[week]
+            # Within-Q weeks not listed → 0 (lenient per-week mode).
+            # Overflow weeks → default formula so capacity is realistic.
+            if self.q_weeks is None or week in self.q_weeks:
+                return 0.0
+            return round(self.eng_bruto_for(week) * ABSENCE_PW_PER_PERSON, 1)
         if self.eng_absence_per_week is not None:
             return round(self.eng_absence_per_week, 1)
         return round(self.eng_bruto_for(week) * ABSENCE_PW_PER_PERSON, 1)

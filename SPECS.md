@@ -56,7 +56,7 @@ Both formats are common: classic files put the config label in the `Budget Bucke
 
 See [LOGIC.md](LOGIC.md) for the full list of recognised labels, required/optional status, units, default values, and fuzzy matching rules.
 
-The input file may also contain week columns for per-week engineer capacity and absence distribution. Two header formats are recognised: **`D.M.`** (e.g. `30.3.`, `6.4.`) and **`D-Mon`** (e.g. `30-Mar`, `6-Apr`). See [LOGIC.md](LOGIC.md) — Per-week capacity mode.
+The input file may also contain week columns for per-week engineer capacity and absence distribution. Two header formats are recognised: **`D.M.`** (e.g. `30.3.`, `6.4.`) and **`D-Mon`** (e.g. `30-Mar`, `6-Apr`). Week dates may also be stored as datetime values in a data row rather than as column headers — the loader detects this automatically. See [LOGIC.md](LOGIC.md) — Per-week capacity mode.
 
 ### 4.2 Epic Columns
 
@@ -86,7 +86,10 @@ The following cause a hard error (all problems reported together):
 3. `Estimation` values for epics are non-numeric.
 4. `Priority` values that are explicitly provided (non-blank) are non-numeric.
 5. When `Allocation Mode` is non-blank, it is not one of `Sprint`, `Uniform`, `Gaps`.
-6. Per-week bruto is partially specified (some Q-weeks populated, some absent) — missing weeks use the scalar fallback derived from the available weeks' mean.
+
+The following emit a **warning** (processing continues):
+
+6. Per-week bruto is partially specified (some Q-weeks populated, some absent) — emits a warning; missing weeks fall back to the scalar derived from the mean of the available weeks.
 
 ---
 
@@ -191,7 +194,10 @@ Post-allocation invariant checks; returns violations (empty = valid).
 **`CapacityConfig`** (dataclass):
 - Scalar fields: `eng_bruto`, `eng_absence`, `eng_net`, `mgmt_capacity`, `mgmt_absence`, `mgmt_net`
 - Per-week dicts (optional): `eng_bruto_by_week`, `eng_absence_by_week`
-- Accessors: `eng_bruto_for(monday)`, `eng_absence_for(monday)`, `eng_net_for(monday)` — return per-week value or fall back to scalar
+- `q_weeks: frozenset[date] | None` — the primary quarter's Mondays; used to distinguish Q weeks from overflow weeks when per-week absence data is provided
+- Accessors: `eng_bruto_for(monday)`, `eng_absence_for(monday)`, `eng_net_for(monday)`
+  - Within Q: return per-week value, or scalar fallback (bruto) / 0 (absence) for missing weeks
+  - Overflow weeks (beyond the primary quarter): bruto falls back to scalar (Q mean); absence uses the default formula (`bruto × ABSENCE_PW_PER_PERSON`) so capacity is realistic
 
 ---
 
@@ -229,7 +235,7 @@ BUCKET_COLORS: list[tuple[str, str]]     # Budget Bucket → Excel fill colour (
 - `get_quarter_dates`: correct start/end for all 4 quarters; raises for invalid quarter
 - `_mondays_in_range`: correct count and values; Q1 labels use `Mon.D` format (no leading zero)
 - `CapacityConfig` scalar mode: properties return correct derived values
-- `CapacityConfig` per-week mode: accessors return per-week values; fall back to scalar for missing weeks
+- `CapacityConfig` per-week mode: accessors return per-week values; fall back to scalar for missing Q weeks; overflow weeks use scalar bruto and default-formula absence
 - `build_output_table`: 6 capacity rows at top; epics sorted by priority; `Total Weeks` Q-only; `Off Estimate` bool; `Off Capacity` row last; correct column order
 - Allocation modes: Sprint fills sequentially at ≤ 2.0 PW/week; Uniform spreads evenly; Gaps allows 0-week holes
 - Overflow: triggers when `Σ(Estimation) > Σ(eng_net_for(m))` over quarter; adds 13 columns; `Total Weeks` and `Off Estimate` still use Q-only weeks
@@ -264,8 +270,9 @@ BUCKET_COLORS: list[tuple[str, str]]     # Budget Bucket → Excel fill colour (
 - Single epic with `Estimation > Q capacity` → overflow, `Off Estimate = True`
 - Absence > Bruto → net capacity = 0 or negative (treat as 0)
 - `Num Engineers` present but no `Engineer Capacity (Bruto)` → uses `Num Engineers × 1.0`
-- Per-week absence with NaN weeks → defaults to 0 PW for those weeks
+- Per-week absence with NaN weeks → defaults to 0 PW for those weeks (within Q)
 - Per-week bruto with partial weeks → warns; missing weeks fall back to scalar (mean of available weeks)
+- Per-week capacity + overflow → overflow bruto uses Q mean (scalar), overflow absence uses default formula (`bruto × ABSENCE_PW_PER_PERSON`)
 - Uniform epic with `est % n_weeks ≠ 0` (rounding gap) in overflow scenario → fully allocated in Q, no spill to overflow weeks
 
 ---

@@ -602,6 +602,7 @@ def read_input(path: Path, quarter: int) -> tuple[pd.DataFrame, CapacityConfig]:
         mgmt_absence_per_week=mgmt_absence_per_week,
         eng_bruto_by_week=eng_bruto_by_week,
         eng_absence_by_week=eng_absence_by_week,
+        q_weeks=frozenset(q_mondays),
     )
 
     # --- epic rows ---
