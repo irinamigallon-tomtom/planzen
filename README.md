@@ -111,32 +111,36 @@ A single `.xlsx` file with one sheet. **Team config rows** appear first, followe
 
 ### Team config rows
 
-Identified by their value in the **`Budget Bucket`** column (case-insensitive, parenthetical suffixes stripped). The `Estimation` column holds the numeric value.
+Identified by a known label in the **`Epic Description`** column (checked first), then `Budget Bucket`, then `Type` — all case-insensitive, parenthetical suffixes stripped. The `Estimation` column holds the numeric value, or values can be spread across per-week columns (see below).
 
-| `Budget Bucket` label | Value | Unit | Required |
+| Label | Value | Unit | Required |
 |---|---|---|---|
-| `Engineer Capacity (Bruto)` or `Num Engineers` | e.g. `5.0` | FTE | ✅ one of these |
-| `Management Capacity (Bruto)` | e.g. `2.0` | FTE | optional (default: 1.0 PW/week) |
+| `Engineer Capacity (Bruto)` or `Num Engineers` | e.g. `5.0` | PW/week or FTE | ✅ one of these |
+| `Management Capacity (Bruto)` | e.g. `2.0` | PW/week | optional (default: 1.0 PW/week) |
 | `Engineer Absence` | e.g. `10` | working days (quarter total) | optional |
 | `Management Absence` | e.g. `4` | working days (quarter total) | optional |
 
 When absence is omitted the tool defaults to **37 days/year** ÷ 52 ÷ 5 ≈ 0.142 PW/person/week.
 
-The input may also include **per-week capacity columns** in `D.M.` format (e.g. `30.3.`, `6.4.`) — see `LOGIC.md` for details.
+**Per-week capacity:** The input may also include columns labelled in `D.M.` format (e.g. `30.3.`, `6.4.`). When the `Engineer Capacity (Bruto)` row has values in all quarter week columns, those override the scalar `Estimation` value week-by-week. Absence is lenient: missing weeks default to 0. See `LOGIC.md` for details.
 
 ### Epic columns
+
+Column order does not matter — named columns may appear in any order before the week columns. Columns with no header (e.g. helper totals) are silently ignored. Only the column explicitly named `Estimation` is used for epic effort.
 
 | Column | Required |
 |---|---|
 | `Epic Description` | ✅ |
 | `Estimation` (PW total) | ✅ |
 | `Budget Bucket` | ✅ |
-| `Priority` (integer, lower = higher priority) | ✅ |
+| `Priority` (integer, lower = higher priority) | optional* |
 | `Link` | optional |
 | `Allocation Mode` (`Sprint` / `Uniform` / `Gaps`) | optional |
 | `Type`, `Milestone` | optional |
 
-Extra columns are preserved without error.
+\* `Priority` is **imputed from `Budget Bucket`** when blank or absent — no manual entry needed. Unknown buckets default to 999 (lowest). See `LOGIC.md` for the full mapping.
+
+Rows with an `Epic Description` but no `Budget Bucket` are silently discarded (this handles annotation rows, computed totals, and decorative section headers that appear in real-world files).
 
 ---
 

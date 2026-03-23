@@ -20,7 +20,7 @@ COL_ALLOC_MODE = "Allocation Mode"    # optional per-epic; blank → Sprint
 # Allocation modes
 ALLOC_MODE_SPRINT  = "Sprint"         # default: allocate up to MAX_WEEKLY_ALLOC_PW, sequential
 ALLOC_MODE_UNIFORM = "Uniform"        # spread estimation evenly across weeks, sequential
-ALLOC_MODE_GAPS    = "Gaps"   # Sprint rate but no sequential minimum
+ALLOC_MODE_GAPS    = "Gaps"           # Sprint rate but no sequential minimum
 
 ALLOC_MODE_DEFAULT = ALLOC_MODE_SPRINT
 VALID_ALLOC_MODES: frozenset[str] = frozenset({
@@ -31,9 +31,9 @@ VALID_ALLOC_MODES: frozenset[str] = frozenset({
 # Represents at most a tandem of 2 people working full-time.  Configurable here.
 MAX_WEEKLY_ALLOC_PW: float = 2.0
 
-# Team config rows — identified by their label in the Budget Bucket column (or
-# Type column as a fallback). The Estimation column holds the numeric value.
-# Labels match the output row labels where applicable.
+# Team config rows — identified by their label in the Epic Description column
+# (primary), Budget Bucket column, or Type column (fallbacks). The Estimation
+# column (or per-week D.M. columns) holds the numeric value.
 TEAM_LABEL_ENGINEERS      = "Engineer Capacity (Bruto)"    # = LABEL_ENG_BRUTO
 TEAM_LABEL_NUM_ENGINEERS  = "Num Engineers"                # headcount; derives eng_bruto when Bruto row absent
 TEAM_LABEL_MANAGERS       = "Management Capacity (Bruto)"  # = LABEL_MGMT_CAPACITY; optional, default 1.0
@@ -42,13 +42,40 @@ TEAM_LABEL_MGMT_ABSENCE   = "Management Absence"           # = LABEL_MGMT_ABSENC
 
 DEFAULT_MGMT_CAPACITY_PW: float = 1.0  # PW/week when no management config row is found
 
-TEAM_CONFIG_LABELS = {
+TEAM_CONFIG_LABELS: frozenset[str] = frozenset({
     TEAM_LABEL_ENGINEERS,
     TEAM_LABEL_NUM_ENGINEERS,
     TEAM_LABEL_MANAGERS,
     TEAM_LABEL_ENG_ABSENCE,
     TEAM_LABEL_MGMT_ABSENCE,
+})
+
+# Budget Bucket → default Priority (used when the Priority column is absent or
+# a row's Priority cell is blank).  Both CLI and web import this mapping.
+# Lower number = higher priority (same convention as the Priority column).
+BUCKET_PRIORITY: dict[str, int] = {
+    "Maintenance & Release":                              1,
+    "Security & Compliance":                              1,
+    "Critical Technical Debt":                            1,
+    "Critical Product Debt":                              1,
+    "Customer Support":                                   0,
+    "Critical Customer Commitments":                      0,
+    "Self-Service ML EV Range - Phase 1":                 3,
+    "Quality improvements through ML/AI experimentation": 4,
 }
+
+# Budget Bucket → Excel row background colour (hex, no leading #).
+# Used for conditional formatting in both the output file and the web view.
+BUCKET_COLORS: list[tuple[str, str]] = [
+    ("Self-Service ML EV Range - Phase 1",                "00548235"),   # dark green
+    ("Quality improvements through ML/AI experimentation","00C6EFCE"),   # green
+    ("Maintenance & Release",                             "00B4C6E7"),   # blue
+    ("Security & Compliance",                             "00D9D2E9"),   # purple
+    ("Customer Support",                                  "00FFC7CE"),   # red
+    ("Critical Technical Debt",                           "00FCE4D6"),   # orange
+    ("Critical Product Debt",                             "00FFF2CC"),   # yellow
+    ("Critical Customer Commitments",                     "00F8CBAD"),   # light orange
+]
 
 # Output table column labels
 OUT_COL_BUDGET_BUCKET = "Budget Bucket"
@@ -89,3 +116,4 @@ FISCAL_QUARTERS: dict[int, tuple[date, date]] = {
     q: (start, start + timedelta(weeks=12))
     for q, start in _Q_STARTS.items()
 }
+

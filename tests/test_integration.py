@@ -50,7 +50,9 @@ def test_invalid_estimations_reports_all_bad_rows() -> None:
 def test_missing_required_columns_reports_each_column() -> None:
     errors = validate_input_file(DATA / "missing_required_columns.xlsx")
     labels = "\n".join(errors)
-    assert "Priority" in labels
+    assert "Budget Bucket" in labels
+    # Priority is imputed from Budget Bucket — not a hard-required column.
+    assert "Priority" not in labels
     # Type is optional — should NOT be reported as missing
     assert "Type" not in labels
 

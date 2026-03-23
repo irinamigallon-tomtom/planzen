@@ -171,3 +171,93 @@ class TestExport:
         assert "attachment" in cd
         assert "_formulas.xlsx" in cd
         assert "output_" in cd
+
+
+# ---------------------------------------------------------------------------
+# Upload sync tests: behaviours shared by CLI and web must match
+# ---------------------------------------------------------------------------
+
+def _make_xlsx(tmp_path, rows: list[dict], filename: str = "test.xlsx") -> Path:
+    """Write a list of row dicts to a temp xlsx file."""
+    import pandas as pd
+    p = tmp_path / filename
+    pd.DataFrame(rows).to_excel(p, index=False)
+    return p
+
+
+def _upload_xlsx(client, path: Path, quarter: int = 2):
+    with open(path, "rb") as f:
+        return client.post(
+            "/api/sessions/upload",
+            files={"file": (path.name, f, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+            data={"quarter": str(quarter)},
+        )
+
+
+class TestUploadBehaviourSync:
+    """
+    Verify that behaviours added to excel_io.py (Priority imputation, unnamed
+    column dropping, Budget Bucket filtering, per-week-only bruto) are active
+    through the web upload path, keeping CLI and web in sync.
+    """
+
+    def test_priority_imputed_from_bucket_on_upload(self, client, tmp_path):
+        """Upload a file with no Priority column; epics get Priority from BUCKET_PRIORITY."""
+        from planzen.config import BUCKET_PRIORITY
+        bucket = "Customer Support"
+        rows = [
+            {"Budget Bucket": "Engineer Capacity (Bruto)", "Epic Description": "Engineer Capacity (Bruto)", "Estimation": 3.0},
+            {"Budget Bucket": bucket, "Epic Description": "Fix crash", "Estimation": 2.0},
+        ]
+        p = _make_xlsx(tmp_path, rows)
+        resp = _upload_xlsx(client, p)
+        assert resp.status_code == 200, resp.text
+        epics = resp.json()["epics"]
+        assert len(epics) == 1
+        assert epics[0]["priority"] == float(BUCKET_PRIORITY[bucket])
+
+    def test_unnamed_columns_silently_dropped_on_upload(self, client, tmp_path):
+        """Unnamed headerless helper columns are dropped; upload succeeds."""
+        import pandas as pd
+        # Create file without column headers for some columns
+        p = tmp_path / "unnamed.xlsx"
+        df = pd.DataFrame([
+            ["Engineer Capacity (Bruto)", "Engineer Capacity (Bruto)", 3.0, "helper value"],
+            ["Customer Support", "Fix bug", 2.0, "another helper"],
+        ], columns=["Budget Bucket", "Epic Description", "Estimation", None])
+        df.to_excel(p, index=False)
+        resp = _upload_xlsx(client, p)
+        assert resp.status_code == 200, resp.text
+
+    def test_annotation_rows_without_budget_bucket_dropped_on_upload(self, client, tmp_path):
+        """Rows with Epic Description but no Budget Bucket are silently discarded."""
+        rows = [
+            {"Budget Bucket": "Engineer Capacity (Bruto)", "Epic Description": "Engineer Capacity (Bruto)", "Estimation": 3.0},
+            {"Budget Bucket": "Customer Support", "Epic Description": "Real epic", "Estimation": 1.0, "Priority": 0},
+            {"Budget Bucket": None, "Epic Description": "just a note", "Estimation": None},
+        ]
+        p = _make_xlsx(tmp_path, rows)
+        resp = _upload_xlsx(client, p)
+        assert resp.status_code == 200, resp.text
+        epics = resp.json()["epics"]
+        assert len(epics) == 1
+        assert epics[0]["epic_description"] == "Real epic"
+
+    def test_per_week_only_bruto_accepted_on_upload(self, client, tmp_path):
+        """Engineer Capacity row with week-column values only (no scalar) uploads successfully."""
+        from datetime import date, timedelta
+        import pandas as pd
+        q2_mondays = [date(2026, 3, 30) + timedelta(weeks=i) for i in range(13)]
+        week_cols = [f"{m.day}.{m.month}." for m in q2_mondays]
+        bruto_row: dict = {
+            "Budget Bucket": "Engineer Capacity (Bruto)",
+            "Epic Description": "Engineer Capacity (Bruto)",
+            "Estimation": None,
+        }
+        for w in week_cols:
+            bruto_row[w] = 2.0
+        epic_row = {"Budget Bucket": "Customer Support", "Epic Description": "Fix bug", "Estimation": 1.0, "Priority": 0}
+        p = _make_xlsx(tmp_path, [bruto_row, epic_row])
+        resp = _upload_xlsx(client, p)
+        assert resp.status_code == 200, resp.text
+        assert len(resp.json()["epics"]) == 1

@@ -14,15 +14,15 @@
 
 ## Input
 
-The user provides a single `.xlsx` file with one sheet. Team config rows appear at the top; epic rows follow.
+The user provides a single `.xlsx` file with one sheet. Team config rows appear at the top; epic rows follow. Any blank rows between them are ignored. Unrecognised columns (helper totals, notes, columns with no header) are silently ignored.
 
 ### Team config rows
 
-Config rows are identified by their label in the **`Budget Bucket`** column. The `Estimation` column holds the numeric value. `Epic Description` should be left blank for these rows. Matching is case-insensitive and strips parenthetical suffixes (e.g. `(Bruto)`, `(days)`).
+Config rows are identified by a known label appearing in **any of** the `Epic Description`, `Budget Bucket`, or `Type` columns (checked in that order; first match wins). Matching is case-insensitive, strips parenthetical suffixes (e.g. `(Bruto)`, `(days)`), and singularises common plurals. Config rows do not require a `Budget Bucket` or `Priority` value.
 
-If `Budget Bucket` has no recognised label, the **`Type`** column is checked as a fallback to identify config rows.
+The `Estimation` column holds the scalar numeric value for config rows. Per-week values may also be provided via `D.M.` week columns (see Per-week capacity mode below).
 
-| `Budget Bucket` label | `Estimation` value | Unit | Required? |
+| Config label | `Estimation` value | Unit | Required? |
 |---|---|---|---|
 | `Engineer Capacity (Bruto)` | e.g. `5.0` | FTE | ✅ (or use `Num Engineers`) |
 | `Num Engineers` | e.g. `5` | FTE | alternative to `Engineer Capacity (Bruto)` |
@@ -52,16 +52,36 @@ When the input file contains week columns formatted as `D.M.` (e.g. `30.3.`, `6.
 | `Estimation` | ✅ | PW (total effort) |
 | `Budget Bucket` | ✅ | — |
 | `Link` | optional | — |
-| `Priority` | ✅ | — (lower = higher priority) |
+| `Priority` | optional* | — (lower = higher priority) |
 | `Allocation Mode` | optional | — (see Allocation algorithm) |
 | `Type` | optional | — |
 | `Milestone` | optional | — |
 
-Column order does not matter. Column names are matched case-insensitively. Any additional columns are preserved.
+\* `Priority` is imputed from `Budget Bucket` when blank or absent (see Priority defaults below). Only the column explicitly named `Estimation` is used for epic effort; other numeric columns are ignored.
+
+Column order does not matter — named metadata columns may appear in any order, as long as they all precede the week columns. Column names are matched case-insensitively. Any additional or unrecognised columns are silently ignored.
+
+### Priority defaults
+
+When `Priority` is blank or the column is absent entirely, the value is imputed from the row's `Budget Bucket`. Unknown buckets default to **999** (lowest priority). Explicit `Priority` values are never overwritten.
+
+| Budget Bucket | Default Priority |
+|---|---|
+| `Customer Support` | 0 |
+| `Critical Customer Commitments` | 0 |
+| `Maintenance & Release` | 1 |
+| `Security & Compliance` | 1 |
+| `Critical Technical Debt` | 1 |
+| `Critical Product Debt` | 1 |
+| `Self-Service ML EV Range - Phase 1` | 3 |
+| `Quality improvements through ML/AI experimentation` | 4 |
+
+The mapping and the Budget Bucket → row colour mapping live in `config.py` (`BUCKET_PRIORITY` and `BUCKET_COLORS`) so both CLI and web backend share them.
 
 ### Row handling
 
 - A row with no `Epic Description` value is **discarded** (logged as a warning).
+- A row with an `Epic Description` but no `Budget Bucket` value is **discarded** (logged as a warning). This naturally handles computed rows (e.g. net capacity totals), annotation rows, and decorative section headers that appear in real-world files.
 - A row with an `Epic Description` but no `Estimation` value defaults to **0 PW** (logged as a warning).
 
 ---

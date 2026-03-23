@@ -243,8 +243,9 @@ def test_read_input_raises_for_missing_engineers_row(tmp_path: Path) -> None:
 
 def test_read_input_raises_for_missing_required_epic_columns(tmp_path: Path) -> None:
     p = tmp_path / "input.xlsx"
-    # Epic row missing Budget Bucket, Link, Priority (Type is optional)
-    rows = _config_rows() + [{"Epic Description": "E", "Estimation": 1.0}]
+    # Config rows identified only by Epic Description; no Budget Bucket column at all.
+    config = [{"Epic Description": "Engineer Capacity (Bruto)", "Estimation": 5.0}]
+    rows = config + [{"Epic Description": "E", "Estimation": 1.0}]
     pd.DataFrame(rows).to_excel(p, index=False)
     with pytest.raises(ValueError, match="missing required columns"):
         read_input(p, 2)
@@ -446,10 +447,12 @@ def test_validate_reports_negative_absence_days(tmp_path: Path) -> None:
 
 def test_validate_reports_missing_required_epic_columns(tmp_path: Path) -> None:
     p = tmp_path / "input.xlsx"
-    rows = _config_rows() + [{"Epic Description": "E", "Estimation": 1.0}]
+    # Budget Bucket column absent → must be reported as missing required column.
+    config = [{"Epic Description": "Engineer Capacity (Bruto)", "Estimation": 5.0}]
+    rows = config + [{"Epic Description": "E", "Estimation": 1.0}]
     pd.DataFrame(rows).to_excel(p, index=False)
     errors = validate_input_file(p)
-    assert any("Budget Bucket" in e or "Priority" in e for e in errors)
+    assert any("Budget Bucket" in e for e in errors)
 
 
 def test_validate_reports_no_epic_rows(tmp_path: Path) -> None:
@@ -474,13 +477,14 @@ def test_validate_reports_negative_estimation(tmp_path: Path) -> None:
     assert any("Estimation" in e for e in errors)
 
 
-def test_validate_reports_missing_priority(tmp_path: Path) -> None:
+def test_validate_no_error_for_blank_priority(tmp_path: Path) -> None:
+    """Priority is imputed from Budget Bucket; a blank value is not an error."""
     p = tmp_path / "input.xlsx"
-    row = _base_row()
+    row = _base_row(**{"Budget Bucket": "Customer Support"})
     row["Priority"] = None
     _write_input(p, [row])
     errors = validate_input_file(p)
-    assert any("Priority" in e for e in errors)
+    assert not any("Priority" in e for e in errors)
 
 
 def test_validate_collects_multiple_errors(tmp_path: Path) -> None:
@@ -1052,3 +1056,191 @@ def test_partial_per_week_bruto_raises_error(tmp_path: Path) -> None:
     pd.DataFrame(rows).to_excel(p, index=False)
     with pytest.raises(ValueError, match="partially populated"):
         read_input(p, 2)
+
+
+# ---------------------------------------------------------------------------
+# Design choices: config detection, Priority imputation, unnamed columns
+# ---------------------------------------------------------------------------
+
+def test_config_row_detected_by_epic_description_column(tmp_path: Path) -> None:
+    """A row with 'Engineer Capacity (Bruto)' in Epic Description is a config row."""
+    p = tmp_path / "input.xlsx"
+    rows = [
+        # Config rows identified via Epic Description (no Budget Bucket on these rows)
+        {"Epic Description": "Engineer Capacity (Bruto)", "Estimation": 4.0},
+        {"Epic Description": "Management Capacity (Bruto)", "Estimation": 1.0},
+        _base_row(),
+    ]
+    pd.DataFrame(rows).to_excel(p, index=False)
+    _, cap = read_input(p, 2)
+    assert cap.num_engineers == 4.0
+    assert cap.num_managers == 1.0
+
+
+def test_config_row_epic_description_case_insensitive(tmp_path: Path) -> None:
+    """Config label in Epic Description is matched case-insensitively."""
+    p = tmp_path / "input.xlsx"
+    rows = [
+        {"Epic Description": "engineer capacity (bruto)", "Estimation": 3.0},
+        _base_row(),
+    ]
+    pd.DataFrame(rows).to_excel(p, index=False)
+    _, cap = read_input(p, 2)
+    assert cap.num_engineers == 3.0
+
+
+def test_config_row_not_included_in_epics(tmp_path: Path) -> None:
+    """Config rows identified via Epic Description must not appear as epics."""
+    p = tmp_path / "input.xlsx"
+    rows = [
+        {"Epic Description": "Engineer Capacity (Bruto)", "Estimation": 4.0},
+        _base_row(),
+    ]
+    pd.DataFrame(rows).to_excel(p, index=False)
+    epics, _ = read_input(p, 2)
+    epic_descs = list(epics["Epic Description"])
+    assert "Engineer Capacity (Bruto)" not in epic_descs
+    assert len(epics) == 1
+
+
+def test_rows_without_budget_bucket_are_dropped(tmp_path: Path) -> None:
+    """Rows with an Epic Description but no Budget Bucket are silently dropped."""
+    p = tmp_path / "input.xlsx"
+    rows = _config_rows() + [
+        _base_row(**{"Epic Description": "Real Epic"}),
+        # Annotation / computed row: has Epic Description, no Budget Bucket
+        {"Epic Description": "Holiday team members", "Estimation": None},
+        {"Epic Description": "Capacity incl. EM"},
+    ]
+    pd.DataFrame(rows).to_excel(p, index=False)
+    epics, _ = read_input(p, 2)
+    assert list(epics["Epic Description"]) == ["Real Epic"]
+
+
+def test_unnamed_columns_are_dropped_silently(tmp_path: Path) -> None:
+    """Columns whose header is 'Unnamed: N' (pandas default) are silently dropped."""
+    import openpyxl as ox
+    p = tmp_path / "input.xlsx"
+    _write_input(p, [_base_row()])
+    # Inject an unnamed column by writing a value with no header
+    wb = ox.load_workbook(p)
+    ws = wb.active
+    last_col = ws.max_column + 1
+    ws.cell(1, last_col).value = None   # no header
+    ws.cell(2, last_col).value = "noise"
+    wb.save(p)
+    epics, _ = read_input(p, 2)
+    assert not any(str(c).startswith("Unnamed") for c in epics.columns)
+
+
+def test_priority_imputed_from_bucket_when_column_absent(tmp_path: Path) -> None:
+    """When the Priority column is absent, Priority is imputed from Budget Bucket."""
+    from planzen.config import BUCKET_PRIORITY
+    p = tmp_path / "input.xlsx"
+    bucket = "Customer Support"
+    rows = _config_rows() + [
+        {"Epic Description": "E", "Estimation": 1.0, "Budget Bucket": bucket, "Link": "x"},
+    ]
+    pd.DataFrame(rows).to_excel(p, index=False)
+    epics, _ = read_input(p, 2)
+    assert int(epics.iloc[0]["Priority"]) == BUCKET_PRIORITY[bucket]
+
+
+def test_priority_imputed_from_bucket_when_value_blank(tmp_path: Path) -> None:
+    """A blank Priority cell is filled from Budget Bucket."""
+    from planzen.config import BUCKET_PRIORITY
+    p = tmp_path / "input.xlsx"
+    bucket = "Security & Compliance"
+    row = _base_row(**{"Budget Bucket": bucket})
+    row["Priority"] = None
+    _write_input(p, [row])
+    epics, _ = read_input(p, 2)
+    assert int(epics.iloc[0]["Priority"]) == BUCKET_PRIORITY[bucket]
+
+
+def test_priority_defaults_to_999_for_unknown_bucket(tmp_path: Path) -> None:
+    """Unknown Budget Bucket → Priority defaults to 999 (lowest)."""
+    p = tmp_path / "input.xlsx"
+    row = _base_row(**{"Budget Bucket": "Some Unknown Bucket"})
+    row["Priority"] = None
+    _write_input(p, [row])
+    epics, _ = read_input(p, 2)
+    assert int(epics.iloc[0]["Priority"]) == 999
+
+
+def test_explicit_priority_is_preserved(tmp_path: Path) -> None:
+    """Explicitly set Priority values are never overwritten by imputation."""
+    p = tmp_path / "input.xlsx"
+    row = _base_row(**{"Budget Bucket": "Customer Support", "Priority": 5})
+    _write_input(p, [row])
+    epics, _ = read_input(p, 2)
+    assert int(epics.iloc[0]["Priority"]) == 5
+
+
+def test_validate_no_error_for_missing_priority_column(tmp_path: Path) -> None:
+    """Missing Priority column is not a validation error (imputed from Budget Bucket)."""
+    p = tmp_path / "input.xlsx"
+    rows = _config_rows() + [
+        {"Epic Description": "E", "Estimation": 1.0, "Budget Bucket": "Customer Support"},
+    ]
+    pd.DataFrame(rows).to_excel(p, index=False)
+    errors = validate_input_file(p)
+    assert not any("Priority" in e for e in errors)
+
+
+def test_extra_unrecognized_columns_do_not_cause_errors(tmp_path: Path) -> None:
+    """Extra columns (helper totals, notes, etc.) are silently ignored."""
+    p = tmp_path / "input.xlsx"
+    rows = _config_rows() + [
+        _base_row(**{
+            "Some helper total": 42,
+            "Q1 notes": "carry over",
+            "Old estimation": 99,
+        }),
+    ]
+    pd.DataFrame(rows).to_excel(p, index=False)
+    errors = validate_input_file(p)
+    assert errors == []
+    epics, _ = read_input(p, 2)
+    assert len(epics) == 1
+
+
+def test_per_week_only_bruto_no_scalar(tmp_path: Path) -> None:
+    """Per-week-only mode: Engineer Capacity (Bruto) has week values, no scalar Estimation.
+
+    Models the real-world case where the config row has values only in the week
+    columns and no value in the Estimation column.
+    """
+    q2_mondays = [date(2026, 3, 30) + timedelta(weeks=i) for i in range(13)]
+    week_cols = [f"{m.day}.{m.month}." for m in q2_mondays]
+
+    bruto_row: dict = {
+        "Budget Bucket": "Engineer Capacity (Bruto)",
+        "Epic Description": "Engineer Capacity (Bruto)",
+        "Estimation": None,
+    }
+    for w in week_cols:
+        bruto_row[w] = 2.0
+
+    epic_row: dict = {
+        "Budget Bucket": "Customer Support",
+        "Epic Description": "Fix production bug",
+        "Estimation": 3.0,
+        "Priority": 0,
+    }
+
+    p = tmp_path / "per_week_only.xlsx"
+    pd.DataFrame([bruto_row, epic_row]).to_excel(p, index=False)
+
+    # validate should not flag missing engineer capacity
+    errors = validate_input_file(p, quarter=2)
+    assert not any("Missing engineer capacity" in e for e in errors), errors
+
+    # read_input should succeed and populate eng_bruto_by_week
+    _, cap = read_input(p, 2)
+    assert cap.eng_bruto_by_week is not None
+    assert len(cap.eng_bruto_by_week) == 13
+    for v in cap.eng_bruto_by_week.values():
+        assert v == pytest.approx(2.0)
+    # scalar fallback derived from mean of per-week values
+    assert cap.num_engineers == pytest.approx(2.0)

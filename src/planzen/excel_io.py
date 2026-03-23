@@ -19,6 +19,8 @@ from openpyxl.utils import get_column_letter
 
 from planzen.config import (
     ALLOC_MODE_DEFAULT,
+    BUCKET_COLORS,
+    BUCKET_PRIORITY,
     COL_ALLOC_MODE,
     COL_BUDGET_BUCKET,
     COL_EPIC,
@@ -51,12 +53,13 @@ from planzen.config import (
 )
 from planzen.core_logic import CapacityConfig
 
+# Columns that must be present in the input file.
+# Priority is intentionally absent — it is imputed from Budget Bucket when missing.
+# Link is optional.
 REQUIRED_INPUT_COLUMNS = {
     COL_EPIC,
     COL_ESTIMATION,
     COL_BUDGET_BUCKET,
-    COL_LINK,
-    COL_PRIORITY,
 }
 
 _log = logging.getLogger(__name__)
@@ -74,16 +77,8 @@ _CAPACITY_LABELS = {
 
 _ALERT_FILL = PatternFill(fill_type="solid", start_color="00FFC7CE", end_color="00FFC7CE")
 _ALERT_FONT = Font(color="009C0006")
-_BUCKET_COLOR_BY_LABEL: list[tuple[str, str]] = [
-    ("Self-Service ML EV Range - Phase 1", "00548235"),  # dark green
-    ("Quality improvements through ML/AI experimentation", "00C6EFCE"),  # green
-    ("Maintenance & Release", "00B4C6E7"),  # blue
-    ("Security & Compliance", "00D9D2E9"),  # purple
-    ("Customer Support", "00FFC7CE"),  # red
-    ("Critical Technical Debt", "00FCE4D6"),  # orange
-    ("Critical Product Debt", "00FFF2CC"),  # yellow
-    ("Critical Customer Commitments", "00F8CBAD"),  # light orange
-]
+# Sourced from config so both CLI and web share the same mapping.
+_BUCKET_COLOR_BY_LABEL = BUCKET_COLORS
 
 
 def _normalize_config_label(s: object) -> str:
@@ -133,6 +128,14 @@ def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df.rename(columns=rename)
 
 
+def _drop_unnamed_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Drop columns with no header (pandas names them 'Unnamed: N')."""
+    unnamed = [c for c in df.columns if isinstance(c, str) and c.startswith("Unnamed:")]
+    if unnamed:
+        _log.debug("Dropping %d unnamed column(s): %s", len(unnamed), unnamed)
+    return df.drop(columns=unnamed)
+
+
 def formulas_path(path: Path) -> Path:
     """Return the sibling path for the formulas variant of an output file."""
     return path.with_stem(path.stem + "_formulas")
@@ -141,21 +144,26 @@ def formulas_path(path: Path) -> Path:
 def _config_label_series(df: pd.DataFrame) -> pd.Series:
     """Return a Series of normalised config labels for each row.
 
-    Checks ``Budget Bucket`` first; falls back to the ``Type`` column when
-    ``Budget Bucket`` carries no recognised config label for a row.
+    Checks ``Budget Bucket`` first; falls back to ``Type``, then to
+    ``Epic Description`` when neither of the first two carries a recognised
+    config label.  This allows files where config rows are labelled only in
+    the Epic Description column (rather than in Budget Bucket / Type).
     """
     COL_TYPE = "Type"
-    if COL_BUDGET_BUCKET in df.columns:
-        bucket_norm = df[COL_BUDGET_BUCKET].fillna("").astype(str).str.strip().apply(_normalize_config_label)
-    else:
-        bucket_norm = pd.Series("", index=df.index)
 
-    if COL_TYPE in df.columns:
-        type_norm = df[COL_TYPE].fillna("").astype(str).str.strip().apply(_normalize_config_label)
-        # Use Type as fallback only where Budget Bucket has no recognised label
-        return bucket_norm.where(bucket_norm.isin(_TEAM_CONFIG_LABELS_NORM), type_norm)
+    def _norm_col(col: str) -> pd.Series:
+        if col in df.columns:
+            return df[col].fillna("").astype(str).str.strip().apply(_normalize_config_label)
+        return pd.Series("", index=df.index)
 
-    return bucket_norm
+    bucket_norm = _norm_col(COL_BUDGET_BUCKET)
+    type_norm   = _norm_col(COL_TYPE)
+    epic_norm   = _norm_col(COL_EPIC)
+
+    result = bucket_norm
+    result = result.where(result.isin(_TEAM_CONFIG_LABELS_NORM), type_norm)
+    result = result.where(result.isin(_TEAM_CONFIG_LABELS_NORM), epic_norm)
+    return result
 
 
 def _quarter_mondays(quarter: int) -> list[date]:
@@ -204,6 +212,7 @@ def validate_input_file(path: Path, quarter: int | None = None) -> list[str]:
 
     try:
         df = pd.read_excel(path)
+        df = _drop_unnamed_columns(df)
         df = _normalize_columns(df)
     except Exception as exc:
         errors.append(
@@ -230,23 +239,37 @@ def validate_input_file(path: Path, quarter: int | None = None) -> list[str]:
     config_rows[COL_EPIC] = epic_norm[config_mask].map(_TEAM_CONFIG_LABELS_NORM)
     config_df = config_rows.set_index(COL_EPIC)[COL_ESTIMATION]
 
-    # Engineer capacity: accept either "Engineer Capacity (Bruto)" or "Num Engineers"
+    # Engineer capacity: accept scalar Estimation value, Num Engineers, or per-week values
+    # in week columns (per-week mode is fully validated in the per-week section below).
     has_eng_bruto = TEAM_LABEL_ENGINEERS in config_df.index and pd.notna(config_df[TEAM_LABEL_ENGINEERS])
     has_num_eng   = TEAM_LABEL_NUM_ENGINEERS in config_df.index and pd.notna(config_df[TEAM_LABEL_NUM_ENGINEERS])
+    # If no scalar, accept a row that has any non-null data (per-week values in week columns)
+    if not has_eng_bruto and not has_num_eng:
+        eng_rows = config_rows[config_rows[COL_EPIC] == TEAM_LABEL_ENGINEERS]
+        if not eng_rows.empty:
+            other_cols = [c for c in eng_rows.columns if c not in (COL_EPIC, COL_BUDGET_BUCKET)]
+            if bool(eng_rows.iloc[0][other_cols].notna().any()):
+                has_eng_bruto = True  # per-week mode; detailed check done below
     if not has_eng_bruto and not has_num_eng:
         errors.append(
             f'Missing engineer capacity config.\n'
-            f'  → Add a row with "{COL_BUDGET_BUCKET}" = "{TEAM_LABEL_ENGINEERS}" and a numeric Estimation,\n'
-            f'    or a row with "{COL_BUDGET_BUCKET}" = "{TEAM_LABEL_NUM_ENGINEERS}" and the headcount in Estimation.'
+            f'  → Add a row with "{TEAM_LABEL_ENGINEERS}" in the "{COL_EPIC}" or "{COL_BUDGET_BUCKET}" column\n'
+            f'    and a numeric Estimation, or use "{TEAM_LABEL_NUM_ENGINEERS}" for headcount.'
         )
-    else:
-        src_label = TEAM_LABEL_ENGINEERS if has_eng_bruto else TEAM_LABEL_NUM_ENGINEERS
-        val = config_df[src_label]
+    elif has_eng_bruto and TEAM_LABEL_ENGINEERS in config_df.index and pd.notna(config_df[TEAM_LABEL_ENGINEERS]):
+        val = config_df[TEAM_LABEL_ENGINEERS]
         try:
             if float(val) <= 0:
-                errors.append(f'"{src_label}" must be greater than 0 (got {val!r}).')
+                errors.append(f'"{TEAM_LABEL_ENGINEERS}" must be greater than 0 (got {val!r}).')
         except (TypeError, ValueError):
-            errors.append(f'"{src_label}" must be a number (got {val!r}).')
+            errors.append(f'"{TEAM_LABEL_ENGINEERS}" must be a number (got {val!r}).')
+    elif has_num_eng:
+        val = config_df[TEAM_LABEL_NUM_ENGINEERS]
+        try:
+            if float(val) <= 0:
+                errors.append(f'"{TEAM_LABEL_NUM_ENGINEERS}" must be greater than 0 (got {val!r}).')
+        except (TypeError, ValueError):
+            errors.append(f'"{TEAM_LABEL_NUM_ENGINEERS}" must be a number (got {val!r}).')
 
     # Management capacity: optional — defaults to DEFAULT_MGMT_CAPACITY_PW if absent
     if TEAM_LABEL_MANAGERS in config_df.index and pd.notna(config_df[TEAM_LABEL_MANAGERS]):
@@ -278,6 +301,9 @@ def validate_input_file(path: Path, quarter: int | None = None) -> list[str]:
     epics_df = df[~config_mask].reset_index(drop=True)
     epics_df = epics_df.dropna(how="all").reset_index(drop=True)
     epics_df = epics_df[epics_df[COL_EPIC].notna()].reset_index(drop=True)
+    # Rows without a Budget Bucket are annotations/computed rows, not epics.
+    if COL_BUDGET_BUCKET in epics_df.columns:
+        epics_df = epics_df[epics_df[COL_BUDGET_BUCKET].notna()].reset_index(drop=True)
 
     missing_cols = (REQUIRED_INPUT_COLUMNS - {COL_EPIC, COL_ESTIMATION}) - set(epics_df.columns)
     if missing_cols:
@@ -315,20 +341,15 @@ def validate_input_file(path: Path, quarter: int | None = None) -> list[str]:
                         "  → Enter the total effort in Person-Weeks, e.g. 4.5."
                     )
 
+    # Priority: only validate explicit non-null values; blank values are imputed at read time.
     if COL_PRIORITY in epics_df.columns:
         for i, row in epics_df.iterrows():
             val = row[COL_PRIORITY]
-            name = row.get(COL_EPIC, f"row {i + 1}")
-            if pd.isna(val):
-                errors.append(
-                    f'Epic "{name}": "Priority" is empty.\n'
-                    "  → Enter a numeric priority (e.g. 1 = highest). "
-                    "Lower numbers are scheduled first."
-                )
-            else:
+            if pd.notna(val):
                 try:
                     float(val)
                 except (TypeError, ValueError):
+                    name = row.get(COL_EPIC, f"row {i + 1}")
                     errors.append(
                         f'Epic "{name}": "Priority" must be a number (got {val!r}).\n'
                         "  → Enter a numeric priority, e.g. 1."
@@ -396,6 +417,7 @@ def read_input(path: Path, quarter: int) -> tuple[pd.DataFrame, CapacityConfig]:
         per-week bruto is only partially populated for the quarter.
     """
     df = pd.read_excel(path)
+    df = _drop_unnamed_columns(df)
     df = _normalize_columns(df)
 
     if COL_EPIC not in df.columns or COL_ESTIMATION not in df.columns:
@@ -413,38 +435,10 @@ def read_input(path: Path, quarter: int) -> tuple[pd.DataFrame, CapacityConfig]:
     # --- scalar engineer capacity (fallback / constant mode) ---
     has_eng_bruto = TEAM_LABEL_ENGINEERS in config_df.index and pd.notna(config_df[TEAM_LABEL_ENGINEERS])
     has_num_eng   = TEAM_LABEL_NUM_ENGINEERS in config_df.index and pd.notna(config_df[TEAM_LABEL_NUM_ENGINEERS])
-    if has_eng_bruto:
-        num_engineers: float = float(config_df[TEAM_LABEL_ENGINEERS])
-    elif has_num_eng:
-        num_engineers = float(config_df[TEAM_LABEL_NUM_ENGINEERS])
-        _log.info("Deriving engineer capacity from '%s' = %s FTE.", TEAM_LABEL_NUM_ENGINEERS, num_engineers)
-    else:
-        raise ValueError(
-            f"Input file missing engineer capacity: add a '{TEAM_LABEL_ENGINEERS}' or "
-            f"'{TEAM_LABEL_NUM_ENGINEERS}' row with a numeric Estimation."
-        )
 
-    # --- scalar management capacity (optional) ---
-    if TEAM_LABEL_MANAGERS in config_df.index and pd.notna(config_df[TEAM_LABEL_MANAGERS]):
-        num_managers: float = float(config_df[TEAM_LABEL_MANAGERS])
-    else:
-        num_managers = DEFAULT_MGMT_CAPACITY_PW
-        _log.info("No '%s' row found — defaulting management capacity to %s PW/week.",
-                  TEAM_LABEL_MANAGERS, DEFAULT_MGMT_CAPACITY_PW)
-
-    # --- scalar absence (days → PW/week conversion done in CapacityConfig) ---
+    # --- per-week capacity extraction (done early so we can derive scalar from it) ---
     q_mondays = _quarter_mondays(quarter)
     n_weeks = len(q_mondays)
-
-    eng_absence_per_week: float | None = None
-    if TEAM_LABEL_ENG_ABSENCE in config_df.index and pd.notna(config_df[TEAM_LABEL_ENG_ABSENCE]):
-        eng_absence_per_week = float(config_df[TEAM_LABEL_ENG_ABSENCE]) / 5.0 / n_weeks
-
-    mgmt_absence_per_week: float | None = None
-    if TEAM_LABEL_MGMT_ABSENCE in config_df.index and pd.notna(config_df[TEAM_LABEL_MGMT_ABSENCE]):
-        mgmt_absence_per_week = float(config_df[TEAM_LABEL_MGMT_ABSENCE]) / 5.0 / n_weeks
-
-    # --- per-week capacity extraction ---
     week_col_map = _parse_dm_week_columns(df.columns, q_mondays)
 
     eng_bruto_by_week: dict[date, float] | None = None
@@ -492,6 +486,39 @@ def read_input(path: Path, quarter: int) -> tuple[pd.DataFrame, CapacityConfig]:
                     for monday, col in week_col_map.items()
                 }
 
+    if has_eng_bruto:
+        num_engineers: float = float(config_df[TEAM_LABEL_ENGINEERS])
+    elif has_num_eng:
+        num_engineers = float(config_df[TEAM_LABEL_NUM_ENGINEERS])
+        _log.info("Deriving engineer capacity from '%s' = %s FTE.", TEAM_LABEL_NUM_ENGINEERS, num_engineers)
+    elif eng_bruto_by_week:
+        # Per-week mode with no scalar: derive fallback from the week average
+        num_engineers = sum(eng_bruto_by_week.values()) / len(eng_bruto_by_week)
+        _log.info("Per-week bruto mode: scalar fallback set to %.2f PW (mean of Q%d weeks).",
+                  num_engineers, quarter)
+    else:
+        raise ValueError(
+            f"Input file missing engineer capacity: add a '{TEAM_LABEL_ENGINEERS}' or "
+            f"'{TEAM_LABEL_NUM_ENGINEERS}' row with a numeric Estimation."
+        )
+
+    # --- scalar management capacity (optional) ---
+    if TEAM_LABEL_MANAGERS in config_df.index and pd.notna(config_df[TEAM_LABEL_MANAGERS]):
+        num_managers: float = float(config_df[TEAM_LABEL_MANAGERS])
+    else:
+        num_managers = DEFAULT_MGMT_CAPACITY_PW
+        _log.info("No '%s' row found — defaulting management capacity to %s PW/week.",
+                  TEAM_LABEL_MANAGERS, DEFAULT_MGMT_CAPACITY_PW)
+
+    # --- scalar absence (days → PW/week conversion) ---
+    eng_absence_per_week: float | None = None
+    if TEAM_LABEL_ENG_ABSENCE in config_df.index and pd.notna(config_df[TEAM_LABEL_ENG_ABSENCE]):
+        eng_absence_per_week = float(config_df[TEAM_LABEL_ENG_ABSENCE]) / 5.0 / n_weeks
+
+    mgmt_absence_per_week: float | None = None
+    if TEAM_LABEL_MGMT_ABSENCE in config_df.index and pd.notna(config_df[TEAM_LABEL_MGMT_ABSENCE]):
+        mgmt_absence_per_week = float(config_df[TEAM_LABEL_MGMT_ABSENCE]) / 5.0 / n_weeks
+
     capacity = CapacityConfig(
         num_engineers=num_engineers,
         num_managers=num_managers,
@@ -510,12 +537,45 @@ def read_input(path: Path, quarter: int) -> tuple[pd.DataFrame, CapacityConfig]:
         _log.warning("Discarding row %d: no '%s' value.", idx + 1, COL_EPIC)
     epics_df = epics_df[~no_description].reset_index(drop=True)
 
+    # Rows without a Budget Bucket are annotations or computed rows, not epics.
+    if COL_BUDGET_BUCKET in epics_df.columns:
+        no_bucket = epics_df[COL_BUDGET_BUCKET].isna()
+        for _, row in epics_df[no_bucket].iterrows():
+            _log.warning(
+                "Discarding row \"%s\": no '%s' value.", row[COL_EPIC], COL_BUDGET_BUCKET
+            )
+        epics_df = epics_df[~no_bucket].reset_index(drop=True)
+
     no_estimation = epics_df[COL_ESTIMATION].isna()
     for _, row in epics_df[no_estimation].iterrows():
         _log.warning(
             "Epic \"%s\": 'Estimation' is empty — defaulting to 0.", row[COL_EPIC]
         )
     epics_df[COL_ESTIMATION] = epics_df[COL_ESTIMATION].fillna(0.0)
+
+    # --- Priority imputation ---
+    # If the Priority column is absent entirely, add it; then fill any blank
+    # cells from BUCKET_PRIORITY (keyed on Budget Bucket).  Unknown buckets
+    # get 999 (lowest priority) with a warning.
+    if COL_PRIORITY not in epics_df.columns:
+        epics_df[COL_PRIORITY] = None
+    if COL_BUDGET_BUCKET in epics_df.columns:
+        missing_prio = epics_df[COL_PRIORITY].isna()
+        for idx in epics_df[missing_prio].index:
+            bucket = epics_df.at[idx, COL_BUDGET_BUCKET]
+            imputed = BUCKET_PRIORITY.get(str(bucket), 999)
+            if imputed == 999:
+                _log.warning(
+                    "Epic \"%s\": Priority blank and Budget Bucket %r not in BUCKET_PRIORITY "
+                    "— defaulting to 999.",
+                    epics_df.at[idx, COL_EPIC], bucket,
+                )
+            else:
+                _log.info(
+                    "Epic \"%s\": Priority blank — imputing %d from Budget Bucket %r.",
+                    epics_df.at[idx, COL_EPIC], imputed, bucket,
+                )
+            epics_df.at[idx, COL_PRIORITY] = imputed
 
     missing = REQUIRED_INPUT_COLUMNS - set(epics_df.columns)
     if missing:

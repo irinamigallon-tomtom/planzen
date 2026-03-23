@@ -50,7 +50,7 @@ A single `.xlsx` file with one sheet. Team config rows appear first; epic rows f
 
 ### 4.1 Team Config Rows
 
-Config rows are identified by the value in the **`Budget Bucket`** column (case- and whitespace-insensitive; parenthetical suffixes stripped). If `Budget Bucket` has no recognised label, the **`Type`** column is used as a fallback. The `Estimation` column holds the numeric value.
+Config rows are identified by a known label appearing in **any of** the `Epic Description`, `Budget Bucket`, or `Type` columns (checked in that order; first match wins). Config rows do not require a `Budget Bucket` or `Priority` value.
 
 See [LOGIC.md](LOGIC.md) for the full list of recognised labels, required/optional status, units, default values, and fuzzy matching rules.
 
@@ -58,27 +58,31 @@ The input file may also contain week columns in `D.M.` format (e.g. `30.3.`, `6.
 
 ### 4.2 Epic Columns
 
-Column order does not matter. Extra columns are preserved in output rows.
+Named metadata columns may appear in **any order**, as long as they all precede the week columns. Column names are matched case-insensitively. Unrecognised columns (helper totals, notes, columns with no header) are silently ignored.
+
+Only the column explicitly named `Estimation` is used for epic effort estimates.
 
 | Column | Required |
 |---|---|
 | `Epic Description` | ✅ |
 | `Estimation` | ✅ |
 | `Budget Bucket` | ✅ |
-| `Priority` | ✅ |
+| `Priority` | optional* |
 | `Link` | optional |
 | `Allocation Mode` | optional (`Sprint` / `Uniform` / `Gaps`) |
 | `Type` | optional |
 | `Milestone` | optional |
+
+\* `Priority` is imputed from `Budget Bucket` when blank or absent. See [LOGIC.md](LOGIC.md) — Priority defaults. Explicit values are never overwritten.
 
 ### 4.3 Validation Rules
 
 The following cause a hard error (all problems reported together):
 
 1. Engineer capacity config row is missing (`Engineer Capacity (Bruto)` or `Num Engineers`).
-2. Required epic columns (`Epic Description`, `Estimation`, `Budget Bucket`, `Priority`) are missing from the sheet.
+2. Required epic columns (`Epic Description`, `Estimation`, `Budget Bucket`) are missing from the sheet.
 3. `Estimation` values for epics are non-numeric.
-4. `Priority` values are non-numeric.
+4. `Priority` values that are explicitly provided (non-blank) are non-numeric.
 5. When `Allocation Mode` is non-blank, it is not one of `Sprint`, `Uniform`, `Gaps`.
 6. Per-week bruto is partially specified (some Q-weeks populated, some absent) — must be all-or-nothing.
 
@@ -208,6 +212,10 @@ WORKING_DAYS_PER_WEEK  = 5
 
 OFF_ESTIMATE_THRESHOLD = 0.05
 OFF_CAPACITY_THRESHOLD = 0.1
+
+# Shared by CLI and web backend:
+BUCKET_PRIORITY: dict[str, int]          # Budget Bucket → default Priority (see LOGIC.md)
+BUCKET_COLORS: list[tuple[str, str]]     # Budget Bucket → Excel fill colour (hex)
 ```
 
 ---
@@ -231,8 +239,13 @@ OFF_CAPACITY_THRESHOLD = 0.1
 
 ### `test_excel_io.py`
 
-- `validate_input_file`: returns errors for missing columns, invalid allocation mode, partial per-week bruto
+- `validate_input_file`: returns errors for missing columns, invalid allocation mode, partial per-week bruto; no error for blank Priority; no error for per-week-only bruto (all Q weeks populated)
 - `read_input`: returns `(epics_df, CapacityConfig)`; per-week fields populated when D.M. columns present; scalar absence converted to PW/week
+- **Config row detection**: config rows identified by Epic Description (primary), Budget Bucket, or Type; case-insensitive; parenthetical suffixes stripped
+- **Priority imputation**: blank or absent Priority is filled from `BUCKET_PRIORITY`; unknown buckets → 999; explicit values never overwritten
+- **Unnamed column dropping**: columns named `Unnamed: N` (headerless) are silently dropped before any processing
+- **Budget Bucket filtering**: epic rows with no `Budget Bucket` value are silently discarded (handles annotation rows, computed totals, decorative headers)
+- **Per-week-only bruto**: `Engineer Capacity (Bruto)` row with values only in week columns (no scalar Estimation) is accepted; `num_engineers` derived from week mean as scalar fallback
 - `write_output`: file created; numeric values; conditional formatting applied (internal helper, tested directly)
 - `write_output_with_formulas`: `=SUM(first:last_Q_week)` in Total Weeks (capacity + epic rows); Net Capacity rows have subtraction formula; Off Estimate has `ABS`; Off Capacity has `ABS`; SUM references correct epic rows for 1, 3, 5 epics
 
