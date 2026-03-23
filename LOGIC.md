@@ -18,7 +18,9 @@ The user provides a single `.xlsx` file with one sheet. Team config rows appear 
 
 ### Team config rows
 
-Config rows are identified by a known label appearing in **any of** the `Epic Description`, `Budget Bucket`, or `Type` columns (checked in that order; first match wins). Matching is case-insensitive, strips parenthetical suffixes (e.g. `(Bruto)`, `(days)`), and singularises common plurals. Config rows do not require a `Budget Bucket` or `Priority` value.
+Config rows are identified by a known label appearing in **any of** the `Budget Bucket`, `Type`, or `Epic Description` columns (checked in that order; first match wins). Matching is case-insensitive, strips parenthetical suffixes (e.g. `(Bruto)`, `(days)`), and singularises common plurals. Config rows do not require a `Budget Bucket` or `Priority` value.
+
+In practice both formats are common: older files store config labels in `Budget Bucket`; newer files may store them in `Epic Description` with the `Budget Bucket` cell left blank.
 
 The `Estimation` column holds the scalar numeric value for config rows. Per-week values may also be provided via `D.M.` week columns (see Per-week capacity mode below).
 

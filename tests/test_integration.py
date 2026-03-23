@@ -150,3 +150,41 @@ def test_cli_succeeds_despite_empty_rows(tmp_path: Path) -> None:
     ])
     assert result.exit_code == 0, result.output
     assert len(list(tmp_path.glob("*.xlsx"))) == 1
+
+
+# ---------------------------------------------------------------------------
+# Config labels in Epic Description column (not Budget Bucket)
+# ---------------------------------------------------------------------------
+
+def test_config_in_epic_description_has_no_validation_errors() -> None:
+    """Fixture with all config labels in Epic Description validates without errors."""
+    errors = validate_input_file(DATA / "config_in_epic_description.xlsx")
+    assert errors == [], f"Unexpected errors: {errors}"
+
+
+def test_config_in_epic_description_reads_correct_capacity() -> None:
+    """read_input correctly parses capacity from Epic Description config rows."""
+    from planzen.excel_io import read_input
+    epics, cap = read_input(DATA / "config_in_epic_description.xlsx", 2)
+    assert cap.num_engineers == 5.0
+    assert cap.num_managers == 2.0
+    # 10 absence days / (5 days/week * 13 Q2 weeks) ≈ 0.154 PW/week
+    import math
+    assert math.isclose(cap.eng_absence_per_week, 10.0 / 5 / 13, rel_tol=1e-6)
+    assert len(epics) == 2
+    assert list(epics["Epic Description"]) == ["Alpha Epic", "Beta Epic"]
+
+
+def test_cli_succeeds_with_config_in_epic_description(tmp_path: Path) -> None:
+    """CLI produces one formulas xlsx when config rows use Epic Description."""
+    result = runner.invoke(app, [
+        str(DATA / "config_in_epic_description.xlsx"),
+        "-q", "2",
+        "-o", str(tmp_path),
+    ])
+    assert result.exit_code == 0, result.output
+    xlsx_files = list(tmp_path.glob("*.xlsx"))
+    assert len(xlsx_files) == 1
+    stem = xlsx_files[0].stem
+    assert stem.startswith("output_")
+    assert "formulas" in stem

@@ -111,7 +111,7 @@ A single `.xlsx` file with one sheet. **Team config rows** appear first, followe
 
 ### Team config rows
 
-Identified by a known label in the **`Epic Description`** column (checked first), then `Budget Bucket`, then `Type` — all case-insensitive, parenthetical suffixes stripped. The `Estimation` column holds the numeric value, or values can be spread across per-week columns (see below).
+Identified by a known label in the **`Budget Bucket`** column (checked first), then `Type`, then `Epic Description` — all case-insensitive, parenthetical suffixes stripped. In practice both formats are common: classic files put the label in `Budget Bucket`; newer files may put it in `Epic Description` with `Budget Bucket` left blank. The `Estimation` column holds the numeric value, or values can be spread across per-week columns (see below).
 
 | Label | Value | Unit | Required |
 |---|---|---|---|

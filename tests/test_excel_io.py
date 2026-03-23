@@ -1103,6 +1103,78 @@ def test_config_row_not_included_in_epics(tmp_path: Path) -> None:
     assert len(epics) == 1
 
 
+def test_validate_passes_when_all_config_in_epic_description(tmp_path: Path) -> None:
+    """validate_input_file returns no errors when config labels are in Epic Description."""
+    p = tmp_path / "input.xlsx"
+    rows = [
+        {"Epic Description": "Engineer Capacity (Bruto)", "Estimation": 5.0, "Budget Bucket": None},
+        {"Epic Description": "Management Capacity (Bruto)", "Estimation": 2.0, "Budget Bucket": None},
+        {"Epic Description": "Engineer Absence", "Estimation": 10.0, "Budget Bucket": None},
+        _base_row(**{"Epic Description": "Epic X"}),
+    ]
+    pd.DataFrame(rows).to_excel(p, index=False)
+    errors = validate_input_file(p)
+    assert errors == [], f"Unexpected errors: {errors}"
+
+
+def test_read_input_absence_in_epic_description(tmp_path: Path) -> None:
+    """Engineer Absence label in Epic Description is read as absence config."""
+    p = tmp_path / "input.xlsx"
+    rows = [
+        {"Epic Description": "Engineer Capacity (Bruto)", "Estimation": 5.0, "Budget Bucket": None},
+        {"Epic Description": "Engineer Absence", "Estimation": 15.0, "Budget Bucket": None},
+        _base_row(),
+    ]
+    pd.DataFrame(rows).to_excel(p, index=False)
+    _, cap = read_input(p, 2)
+    # 15 absence days / (5 days/week * 13 weeks) ≈ 0.231 PW/week
+    import math
+    assert math.isclose(cap.eng_absence_per_week, 15.0 / 5 / 13, rel_tol=1e-6)
+
+
+def test_read_input_num_engineers_in_epic_description(tmp_path: Path) -> None:
+    """Num Engineers label in Epic Description is accepted as headcount config."""
+    p = tmp_path / "input.xlsx"
+    rows = [
+        {"Epic Description": "Num Engineers", "Estimation": 6.0, "Budget Bucket": None},
+        _base_row(),
+    ]
+    pd.DataFrame(rows).to_excel(p, index=False)
+    _, cap = read_input(p, 2)
+    assert cap.num_engineers == 6.0
+
+
+def test_read_input_mgmt_absence_in_epic_description(tmp_path: Path) -> None:
+    """Management Absence label in Epic Description is read as mgmt absence config."""
+    p = tmp_path / "input.xlsx"
+    rows = [
+        {"Epic Description": "Engineer Capacity (Bruto)", "Estimation": 5.0, "Budget Bucket": None},
+        {"Epic Description": "Management Capacity (Bruto)", "Estimation": 2.0, "Budget Bucket": None},
+        {"Epic Description": "Management Absence", "Estimation": 5.0, "Budget Bucket": None},
+        _base_row(),
+    ]
+    pd.DataFrame(rows).to_excel(p, index=False)
+    _, cap = read_input(p, 2)
+    import math
+    assert math.isclose(cap.mgmt_absence_per_week, 5.0 / 5 / 13, rel_tol=1e-6)
+
+
+def test_config_in_epic_description_coexists_with_budget_bucket_config(tmp_path: Path) -> None:
+    """Config rows may mix Epic Description and Budget Bucket columns for labels."""
+    p = tmp_path / "input.xlsx"
+    rows = [
+        # Engineer Bruto via Epic Description
+        {"Epic Description": "Engineer Capacity (Bruto)", "Estimation": 4.0, "Budget Bucket": None},
+        # Management via Budget Bucket (classic format)
+        {"Budget Bucket": "Management Capacity (Bruto)", "Estimation": 3.0},
+        _base_row(),
+    ]
+    pd.DataFrame(rows).to_excel(p, index=False)
+    _, cap = read_input(p, 2)
+    assert cap.num_engineers == 4.0
+    assert cap.num_managers == 3.0
+
+
 def test_rows_without_budget_bucket_are_dropped(tmp_path: Path) -> None:
     """Rows with an Epic Description but no Budget Bucket are silently dropped."""
     p = tmp_path / "input.xlsx"

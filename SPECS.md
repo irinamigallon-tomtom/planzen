@@ -50,7 +50,9 @@ A single `.xlsx` file with one sheet. Team config rows appear first; epic rows f
 
 ### 4.1 Team Config Rows
 
-Config rows are identified by a known label appearing in **any of** the `Epic Description`, `Budget Bucket`, or `Type` columns (checked in that order; first match wins). Config rows do not require a `Budget Bucket` or `Priority` value.
+Config rows are identified by a known label appearing in **any of** the `Budget Bucket`, `Type`, or `Epic Description` columns (checked in that order; first match wins). Config rows do not require a `Budget Bucket` or `Priority` value.
+
+Both formats are common: classic files put the config label in the `Budget Bucket` column with `Epic Description` left blank; newer files may put the label in `Epic Description` with `Budget Bucket` left blank. Both are handled identically.
 
 See [LOGIC.md](LOGIC.md) for the full list of recognised labels, required/optional status, units, default values, and fuzzy matching rules.
 
@@ -241,7 +243,7 @@ BUCKET_COLORS: list[tuple[str, str]]     # Budget Bucket → Excel fill colour (
 
 - `validate_input_file`: returns errors for missing columns, invalid allocation mode, partial per-week bruto; no error for blank Priority; no error for per-week-only bruto (all Q weeks populated)
 - `read_input`: returns `(epics_df, CapacityConfig)`; per-week fields populated when D.M. columns present; scalar absence converted to PW/week
-- **Config row detection**: config rows identified by Epic Description (primary), Budget Bucket, or Type; case-insensitive; parenthetical suffixes stripped
+- **Config row detection**: config rows identified by Budget Bucket (primary), Type, or Epic Description; case-insensitive; parenthetical suffixes stripped. Both formats common: classic files use Budget Bucket column, newer files may use Epic Description column.
 - **Priority imputation**: blank or absent Priority is filled from `BUCKET_PRIORITY`; unknown buckets → 999; explicit values never overwritten
 - **Unnamed column dropping**: columns named `Unnamed: N` (headerless) are silently dropped before any processing
 - **Budget Bucket filtering**: epic rows with no `Budget Bucket` value are silently discarded (handles annotation rows, computed totals, decorative headers)
