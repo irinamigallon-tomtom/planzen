@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import type { ColDef, CellValueChangedEvent } from 'ag-grid-community';
 import { AllCommunityModule, ModuleRegistry } from 'ag-grid-community';
@@ -10,6 +10,8 @@ ModuleRegistry.registerModules([AllCommunityModule]);
 interface AllocationPreviewProps {
   sessionId: string;
   computeResponse: ComputeResponse | null;
+  /** Existing overrides from the saved session — used to initialise state and style overridden cells. */
+  initialOverrides: Record<string, Record<string, number>>;
   onOverrideChanged: () => void;
 }
 
@@ -34,6 +36,9 @@ const BUDGET_BUCKET_COLORS: Record<string, string> = {
 };
 
 const OFF_STYLE = { background: '#FFC7CE', color: '#9C0006' };
+// Editable epic cells get a subtle blue tint; overridden cells get amber.
+const EDITABLE_STYLE = { background: '#EFF6FF', cursor: 'text' };
+const OVERRIDDEN_STYLE = { background: '#FEF3C7', cursor: 'text' };
 
 function isEpicRow(row: AllocationRow): boolean {
   return (
@@ -58,10 +63,25 @@ type RowDataItem = {
 export function AllocationPreview({
   sessionId,
   computeResponse,
+  initialOverrides,
   onOverrideChanged,
 }: AllocationPreviewProps) {
-  const [, setOverrides] = useState<Record<string, Record<string, number>>>({});
+  const [overrides, setOverrides] = useState<Record<string, Record<string, number>>>(initialOverrides);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // When the session changes (e.g. user loads a different session), sync saved overrides.
+  useEffect(() => {
+    setOverrides(initialOverrides);
+  }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const hasOverrides = Object.values(overrides).some((w) => Object.keys(w).length > 0);
+
+  async function handleClearOverrides() {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    setOverrides({});
+    await updateOverrides(sessionId, {});
+    onOverrideChanged();
+  }
 
   const rowData = useMemo<RowDataItem[]>(() => {
     if (!computeResponse) return [];
@@ -83,6 +103,7 @@ export function AllocationPreview({
     });
   }, [computeResponse]);
 
+  // Include `overrides` in deps so overridden cells get their amber highlight.
   const columnDefs = useMemo<ColDef[]>(() => {
     if (!computeResponse) return [];
 
@@ -102,8 +123,8 @@ export function AllocationPreview({
     ];
 
     const weekCols: ColDef[] = computeResponse.week_labels.map((week) => ({
-      // Do NOT use `field` for week labels — AG Grid treats "." as a nested path
-      // separator (e.g. "Mar.30" → row.Mar.30). Use colId + valueGetter/valueSetter.
+      // Do NOT use `field` — AG Grid treats "." as a nested-path separator
+      // (e.g. "Mar.30" → row.Mar.30). Use colId + valueGetter/valueSetter.
       colId: week,
       headerName: week,
       width: 90,
@@ -112,12 +133,16 @@ export function AllocationPreview({
       editable: (params) => params.data?._isEpic === true,
       cellStyle: (params) => {
         if (params.data?._isOffCapacity && params.value === true) return OFF_STYLE;
+        if (params.data?._isEpic) {
+          const isOverridden = overrides[params.data.label]?.[week] !== undefined;
+          return isOverridden ? OVERRIDDEN_STYLE : EDITABLE_STYLE;
+        }
         return null;
       },
     }));
 
     return [...fixedCols, ...weekCols];
-  }, [computeResponse]);
+  }, [computeResponse, overrides]);
 
   const getRowStyle = useCallback((params: { data?: RowDataItem }) => {
     const bucket = params.data?.budget_bucket;
@@ -179,11 +204,29 @@ export function AllocationPreview({
         </div>
       )}
 
+      <div className="flex items-center justify-between text-xs text-gray-500">
+        <span>
+          Click any <span className="inline-block w-3 h-3 rounded-sm align-middle" style={{ background: '#EFF6FF', border: '1px solid #BFDBFE' }} /> blue cell to override its allocation.
+          Overridden cells are highlighted <span className="inline-block w-3 h-3 rounded-sm align-middle" style={{ background: '#FEF3C7', border: '1px solid #FDE68A' }} /> amber.
+        </span>
+        {hasOverrides && (
+          <button
+            type="button"
+            onClick={handleClearOverrides}
+            className="text-xs text-red-500 hover:text-red-700 hover:underline"
+          >
+            Clear all overrides
+          </button>
+        )}
+      </div>
+
       <div className="ag-theme-alpine w-full">
         <AgGridReact
           rowData={rowData}
           columnDefs={columnDefs}
           domLayout="autoHeight"
+          singleClickEdit={true}
+          stopEditingWhenCellsLoseFocus={true}
           getRowStyle={getRowStyle}
           onCellValueChanged={handleCellValueChanged}
         />
@@ -192,5 +235,5 @@ export function AllocationPreview({
   );
 }
 
-// re-export overrides state for consumers that need to reset it
 export { BUDGET_BUCKET_COLORS };
+

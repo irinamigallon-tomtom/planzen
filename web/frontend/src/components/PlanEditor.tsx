@@ -112,6 +112,7 @@ export function PlanEditor() {
           <AllocationPreview
             sessionId={session.session_id}
             computeResponse={computeResult}
+            initialOverrides={session.manual_overrides}
             onOverrideChanged={recompute}
           />
         </div>

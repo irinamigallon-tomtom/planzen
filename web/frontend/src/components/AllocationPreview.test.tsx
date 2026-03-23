@@ -44,7 +44,7 @@ const makeResponse = (overrides: Partial<ComputeResponse> = {}): ComputeResponse
 describe('AllocationPreview', () => {
   it('shows empty state when computeResponse is null', () => {
     render(
-      <AllocationPreview sessionId="s1" computeResponse={null} onOverrideChanged={vi.fn()} />,
+      <AllocationPreview sessionId="s1" computeResponse={null} initialOverrides={{}} onOverrideChanged={vi.fn()} />,
     );
     expect(screen.getByText(/no allocation computed yet/i)).toBeInTheDocument();
   });
@@ -58,7 +58,7 @@ describe('AllocationPreview', () => {
       ],
     });
     render(
-      <AllocationPreview sessionId="s1" computeResponse={response} onOverrideChanged={vi.fn()} />,
+      <AllocationPreview sessionId="s1" computeResponse={response} initialOverrides={{}} onOverrideChanged={vi.fn()} />,
     );
     expect(screen.getAllByTestId('ag-row')).toHaveLength(3);
   });
@@ -66,7 +66,7 @@ describe('AllocationPreview', () => {
   it('shows overflow banner when has_overflow is true', () => {
     const response = makeResponse({ has_overflow: true });
     render(
-      <AllocationPreview sessionId="s1" computeResponse={response} onOverrideChanged={vi.fn()} />,
+      <AllocationPreview sessionId="s1" computeResponse={response} initialOverrides={{}} onOverrideChanged={vi.fn()} />,
     );
     expect(screen.getByText(/overflow.*some epics extend/i)).toBeInTheDocument();
   });
@@ -74,7 +74,7 @@ describe('AllocationPreview', () => {
   it('shows validation errors when non-empty', () => {
     const response = makeResponse({ validation_errors: ['Error A', 'Error B'] });
     render(
-      <AllocationPreview sessionId="s1" computeResponse={response} onOverrideChanged={vi.fn()} />,
+      <AllocationPreview sessionId="s1" computeResponse={response} initialOverrides={{}} onOverrideChanged={vi.fn()} />,
     );
     expect(screen.getByText('Error A')).toBeInTheDocument();
     expect(screen.getByText('Error B')).toBeInTheDocument();
@@ -85,7 +85,7 @@ describe('AllocationPreview', () => {
       rows: [makeRow('My Epic', 'Maintenance & Release', true)],
     });
     render(
-      <AllocationPreview sessionId="s1" computeResponse={response} onOverrideChanged={vi.fn()} />,
+      <AllocationPreview sessionId="s1" computeResponse={response} initialOverrides={{}} onOverrideChanged={vi.fn()} />,
     );
     // The grid receives 1 row (off_estimate=true is passed through rowData)
     expect(screen.getAllByTestId('ag-row')).toHaveLength(1);
