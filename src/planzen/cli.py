@@ -16,7 +16,7 @@ from pathlib import Path
 
 import typer
 
-from planzen.config import COL_ESTIMATION
+from planzen.config import COL_ESTIMATION, COL_PRIORITY
 from planzen.core_logic import build_output_table, get_quarter_dates, _mondays_in_range
 from planzen.excel_io import read_input, validate_input_file, write_output_with_formulas
 
@@ -51,6 +51,12 @@ def run(
         raise typer.Exit(code=1)
 
     epics_df, capacity = read_input(input_file, quarter)
+
+    priority_counts = epics_df[COL_PRIORITY].value_counts()
+    duplicate_priorities = sorted(priority_counts[priority_counts > 1].index.tolist())
+    if duplicate_priorities:
+        dup_str = ", ".join(str(int(p)) if float(p).is_integer() else str(p) for p in duplicate_priorities)
+        typer.echo(f"ℹ  Duplicate priorities detected ({dup_str}). Epics with equal priority keep their original order.")
 
     primary_mondays = _mondays_in_range(start_date, end_date)
     n_primary_weeks = len(primary_mondays)

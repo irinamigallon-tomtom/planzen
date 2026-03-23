@@ -31,6 +31,17 @@ export function EpicsTable({ sessionId, epics, onEpicsChanged, debounceMs = 500 
     [sessionId, onEpicsChanged, debounceMs],
   );
 
+  const duplicatePriorities = useMemo(() => {
+    const counts = new Map<number, number>();
+    for (const epic of rowData) {
+      counts.set(epic.priority, (counts.get(epic.priority) ?? 0) + 1);
+    }
+    return [...counts.entries()]
+      .filter(([, count]) => count > 1)
+      .map(([p]) => p)
+      .sort((a, b) => a - b);
+  }, [rowData]);
+
   const handleCellValueChanged = useCallback(() => {
     setRowData((prev) => {
       scheduleUpdate(prev);
@@ -45,9 +56,8 @@ export function EpicsTable({ sessionId, epics, onEpicsChanged, debounceMs = 500 
       api.forEachNodeAfterFilterAndSort((node) => {
         if (node.data) reordered.push(node.data as Epic);
       });
-      const renumbered = reordered.map((epic, i) => ({ ...epic, priority: i + 1 }));
-      setRowData(renumbered);
-      scheduleUpdate(renumbered);
+      setRowData(reordered);
+      scheduleUpdate(reordered);
     },
     [scheduleUpdate],
   );
@@ -58,9 +68,8 @@ export function EpicsTable({ sessionId, epics, onEpicsChanged, debounceMs = 500 
         className="text-red-500 hover:text-red-700 font-bold px-2"
         onClick={() => {
           const updated = rowData.filter((r) => r !== params.data);
-          const renumbered = updated.map((epic, i) => ({ ...epic, priority: i + 1 }));
-          setRowData(renumbered);
-          scheduleUpdate(renumbered);
+          setRowData(updated);
+          scheduleUpdate(updated);
         }}
       >
         ✕
@@ -100,12 +109,11 @@ export function EpicsTable({ sessionId, epics, onEpicsChanged, debounceMs = 500 
   );
 
   const handleAddEpic = useCallback(() => {
-    const maxPriority = rowData.length > 0 ? Math.max(...rowData.map((r) => r.priority)) : 0;
     const newEpic: Epic = {
       epic_description: '',
       estimation: 1.0,
       budget_bucket: '',
-      priority: maxPriority + 1,
+      priority: 0,
       allocation_mode: 'Sprint',
       link: '',
       type: '',
@@ -118,6 +126,14 @@ export function EpicsTable({ sessionId, epics, onEpicsChanged, debounceMs = 500 
 
   return (
     <div className="flex flex-col gap-2">
+      {duplicatePriorities.length > 0 && (
+        <p
+          className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2"
+          role="status"
+        >
+          ℹ Duplicate priorities: {duplicatePriorities.join(', ')}. Epics with equal priority keep their original order.
+        </p>
+      )}
       <div className="flex justify-end">
         <button
           className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-1.5 rounded"

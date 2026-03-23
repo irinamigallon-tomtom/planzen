@@ -64,9 +64,24 @@ describe('EpicsTable', () => {
     await waitFor(() => {
       expect(client.updateEpics).toHaveBeenCalledWith(
         'sess1',
-        expect.arrayContaining([expect.objectContaining({ priority: 3, allocation_mode: 'Sprint' })]),
+        expect.arrayContaining([expect.objectContaining({ priority: 0, allocation_mode: 'Sprint' })]),
       );
     });
+  });
+
+  it('shows duplicate priority warning when priorities are not unique', () => {
+    const epics: Epic[] = [
+      { epic_description: 'A', estimation: 1, budget_bucket: '', priority: 2, allocation_mode: 'Sprint', link: '', type: '', milestone: '' },
+      { epic_description: 'B', estimation: 1, budget_bucket: '', priority: 2, allocation_mode: 'Sprint', link: '', type: '', milestone: '' },
+      { epic_description: 'C', estimation: 1, budget_bucket: '', priority: 3, allocation_mode: 'Sprint', link: '', type: '', milestone: '' },
+    ];
+    render(<EpicsTable sessionId="sess1" epics={epics} onEpicsChanged={vi.fn()} />);
+    expect(screen.getByRole('status')).toHaveTextContent('Duplicate priorities: 2');
+  });
+
+  it('does not show duplicate priority warning when priorities are unique', () => {
+    render(<EpicsTable sessionId="sess1" epics={makeEpics(3)} onEpicsChanged={vi.fn()} />);
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
   it('calls onEpicsChanged after successful update', async () => {
