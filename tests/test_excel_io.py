@@ -1379,3 +1379,72 @@ def test_partial_per_week_bruto_warns_and_continues_dmon(tmp_path: Path) -> None
     assert cap.eng_bruto_by_week is not None
     assert len(cap.eng_bruto_by_week) == 5
     assert cap.num_engineers == pytest.approx(3.0)
+
+
+# ---------------------------------------------------------------------------
+# Epic dependency validation tests
+# ---------------------------------------------------------------------------
+
+def _dep_base_row(name: str, prio: int = 0, **extra) -> dict:
+    return {
+        "Epic Description": name, "Estimation": 2.0, "Budget Bucket": "Core",
+        "Type": "Feature", "Link": "", "Priority": prio, **extra,
+    }
+
+
+def test_valid_dependency_produces_no_errors(tmp_path: Path) -> None:
+    path = tmp_path / "dep.xlsx"
+    rows = [
+        _dep_base_row("Epic A", prio=0),
+        _dep_base_row("Epic B", prio=1, **{"Depends On": "Epic A"}),
+    ]
+    _write_input(path, rows)
+    assert validate_input_file(path) == []
+
+
+def test_depends_on_references_unknown_epic_is_error(tmp_path: Path) -> None:
+    path = tmp_path / "dep.xlsx"
+    rows = [
+        _dep_base_row("Epic A", prio=0),
+        _dep_base_row("Epic B", prio=1, **{"Depends On": "Epic X"}),
+    ]
+    _write_input(path, rows)
+    errors = validate_input_file(path)
+    assert any("unknown epic" in e for e in errors), errors
+
+
+def test_dependency_priority_violation_is_error(tmp_path: Path) -> None:
+    """B depends on A but B has a higher priority (lower number) — invalid."""
+    path = tmp_path / "dep.xlsx"
+    rows = [
+        _dep_base_row("Epic A", prio=2),  # lower priority (higher number)
+        _dep_base_row("Epic B", prio=1, **{"Depends On": "Epic A"}),  # higher priority
+    ]
+    _write_input(path, rows)
+    errors = validate_input_file(path)
+    assert any("priority" in e.lower() for e in errors), errors
+
+
+def test_blank_depends_on_produces_no_errors(tmp_path: Path) -> None:
+    """Blank Depends On is valid — no dependency."""
+    path = tmp_path / "dep.xlsx"
+    rows = [
+        _dep_base_row("Epic A", prio=0),
+        _dep_base_row("Epic B", prio=1, **{"Depends On": ""}),
+    ]
+    _write_input(path, rows)
+    assert validate_input_file(path) == []
+
+
+def test_read_input_preserves_depends_on_column(tmp_path: Path) -> None:
+    """read_input passes 'Depends On' through to the epics DataFrame."""
+    path = tmp_path / "dep.xlsx"
+    rows = [
+        _dep_base_row("Epic A", prio=0),
+        _dep_base_row("Epic B", prio=1, **{"Depends On": "Epic A"}),
+    ]
+    _write_input(path, rows)
+    epics_df, _ = read_input(path, 2)
+    assert "Depends On" in epics_df.columns
+    b_row = epics_df[epics_df["Epic Description"] == "Epic B"].iloc[0]
+    assert str(b_row["Depends On"]) == "Epic A"

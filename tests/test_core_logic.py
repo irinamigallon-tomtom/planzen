@@ -687,3 +687,91 @@ def test_overflow_per_week_capacity_uses_average_and_default_absence() -> None:
     for w in week_cols[len(q1_mondays):]:
         assert float(absence_row[w]) == pytest.approx(expected_overflow_absence), \
             f"Overflow absence should be default formula, got {absence_row[w]}"
+
+
+# ---------------------------------------------------------------------------
+# Epic dependency tests
+# ---------------------------------------------------------------------------
+
+def _dep_epics(**dep_fields) -> pd.DataFrame:
+    """Build a two-epic DataFrame where B depends on A."""
+    return pd.DataFrame([
+        {
+            "Epic Description": "Epic A",
+            "Estimation": 4.0,
+            "Budget Bucket": "Core",
+            "Priority": 0,
+            "Allocation Mode": "Sprint",
+        },
+        {
+            "Epic Description": "Epic B",
+            "Estimation": 4.0,
+            "Budget Bucket": "Core",
+            "Priority": 1,
+            "Allocation Mode": "Sprint",
+            **dep_fields,
+        },
+    ])
+
+
+def test_dependency_b_starts_after_a_last_week() -> None:
+    """B's first allocated week is strictly after A's last."""
+    # 8 Mondays with 5 PW/week capacity; A needs 4 PW (2 weeks of Sprint at 2.0/week).
+    cap = CapacityConfig(num_engineers=5, num_managers=0)
+    start = _Q1_START
+    end = _Q1_START + timedelta(weeks=7)  # 8 weeks
+    epics = _dep_epics(**{"Depends On": "Epic A"})
+    df = build_output_table(epics, cap, start, end)
+
+    week_cols = [c for c in df.columns if c not in _WEEK_COLS_SET]
+    a_row = df[df[OUT_COL_EPIC] == "Epic A"].iloc[0]
+    b_row = df[df[OUT_COL_EPIC] == "Epic B"].iloc[0]
+
+    a_last_idx = max(i for i, w in enumerate(week_cols) if float(a_row[w]) > 0)
+    b_first_idx = next(i for i, w in enumerate(week_cols) if float(b_row[w]) > 0)
+    assert b_first_idx > a_last_idx, (
+        f"B started at week index {b_first_idx}, "
+        f"but A's last week was index {a_last_idx}. Expected B to start after A."
+    )
+
+
+def test_no_dependency_b_starts_immediately() -> None:
+    """Without a dependency, B starts as soon as capacity allows (week 0)."""
+    cap = CapacityConfig(num_engineers=5, num_managers=0)
+    start = _Q1_START
+    end = _Q1_START + timedelta(weeks=7)
+    epics = _dep_epics()  # no dependency columns
+    df = build_output_table(epics, cap, start, end)
+
+    week_cols = [c for c in df.columns if c not in _WEEK_COLS_SET]
+    b_row = df[df[OUT_COL_EPIC] == "Epic B"].iloc[0]
+    b_first_idx = next(i for i, w in enumerate(week_cols) if float(b_row[w]) > 0)
+    assert b_first_idx == 0, "Without dependency, B should start at week 0."
+
+
+def test_dependency_on_unknown_epic_uses_week_0() -> None:
+    """If 'Depends On' names a non-existent epic, B starts at week 0 (no constraint)."""
+    cap = CapacityConfig(num_engineers=5, num_managers=0)
+    start = _Q1_START
+    end = _Q1_START + timedelta(weeks=7)
+    epics = _dep_epics(**{"Depends On": "Nonexistent Epic"})
+    df = build_output_table(epics, cap, start, end)
+
+    week_cols = [c for c in df.columns if c not in _WEEK_COLS_SET]
+    b_row = df[df[OUT_COL_EPIC] == "Epic B"].iloc[0]
+    b_first_idx = next(i for i, w in enumerate(week_cols) if float(b_row[w]) > 0)
+    assert b_first_idx == 0, "Unknown dep name: B should start at week 0 (no constraint)."
+
+
+def test_dependency_b_total_weeks_correct() -> None:
+    """B's Total Weeks sums only Q allocations (same invariant as without dependency)."""
+    cap = CapacityConfig(num_engineers=5, num_managers=0)
+    start = _Q1_START
+    end = _Q1_START + timedelta(weeks=7)
+    epics = _dep_epics(**{"Depends On": "Epic A"})
+    df = build_output_table(epics, cap, start, end)
+
+    b_row = df[df[OUT_COL_EPIC] == "Epic B"].iloc[0]
+    week_cols = [c for c in df.columns if c not in _WEEK_COLS_SET]
+    # Total Weeks counts all 8 weeks (no overflow here), same as sum of week columns
+    assert abs(float(b_row[OUT_COL_TOTAL_WEEKS]) - sum(float(b_row[w]) for w in week_cols)) < 0.05

@@ -5,6 +5,7 @@
 - **Package manager:** `uv` — always. Never `pip`, `poetry`, or `pyenv`.
 - Add dependencies: `uv add <package>`
 - Sync environment: `uv sync`
+- Bump version (requires `uv add --dev bump-my-version`): `uv run bump-my-version bump patch|minor|major`
 - Run the CLI: `uv run planzen`
 - Run tests: `uv run pytest`
 - Start the web app (combined): `npm run dev` — press **`Ctrl+C`** to stop both processes

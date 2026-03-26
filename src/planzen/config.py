@@ -16,6 +16,7 @@ COL_PRIORITY = "Priority"
 # Optional input columns (used when present)
 COL_MILESTONE = "Milestone"
 COL_ALLOC_MODE = "Allocation Mode"    # optional per-epic; blank → Sprint
+COL_DEPENDS_ON = "Depends On"         # optional per-epic; exact Epic Description of upstream epic
 
 # Allocation modes
 ALLOC_MODE_SPRINT  = "Sprint"         # default: allocate up to MAX_WEEKLY_ALLOC_PW, sequential
@@ -26,6 +27,7 @@ ALLOC_MODE_DEFAULT = ALLOC_MODE_SPRINT
 VALID_ALLOC_MODES: frozenset[str] = frozenset({
     ALLOC_MODE_SPRINT, ALLOC_MODE_UNIFORM, ALLOC_MODE_GAPS,
 })
+
 
 # Maximum PW a single epic may receive in one week (Sprint / Gaps).
 # Represents at most a tandem of 2 people working full-time.  Configurable here.

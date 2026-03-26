@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: Tests (Python + frontend)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install Python dependencies
+        run: uv sync
+
+      - name: Run pytest
+        run: uv run pytest tests/ web/backend/tests/
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "lts/*"
+          cache: "npm"
+          cache-dependency-path: web/frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: web/frontend
+        run: npm ci
+
+      - name: Run frontend tests
+        working-directory: web/frontend
+        run: npm test -- --run
+
+  integration:
+    name: Spreadsheet integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install Python dependencies
+        run: uv sync
+
+      - name: Run CLI against all committed spreadsheets
+        run: |
+          mkdir -p output
+          find data -name '*.xlsx' -print0 | while IFS= read -r -d '' f; do
+            echo "Testing $f …"
+            uv run planzen "$f" -q 2 -o output/ || exit 1
+          done
+
+  protect-examples:
+    name: Guard data/examples/
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fail if data/examples/ was modified
+        run: |
+          if git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -q '^data/examples/'; then
+            echo "ERROR: data/examples/ must not be modified by code or scripts."
+            echo "Changed files:"
+            git diff --name-only origin/${{ github.base_ref }}...HEAD | grep '^data/examples/'
+            exit 1
+          fi

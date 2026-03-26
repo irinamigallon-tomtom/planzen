@@ -16,6 +16,7 @@ export interface Epic {
   link: string;
   type: string;
   milestone: string;
+  depends_on: string;
 }
 
 export interface SessionSummary {

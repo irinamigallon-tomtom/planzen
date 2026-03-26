@@ -1,0 +1,32 @@
+# Generated / installed artefacts — never need to be read
+.venv/
+node_modules/
+web/frontend/node_modules/
+web/frontend/dist/
+web/frontend/build/
+
+# Runtime output — not source
+output/
+tmp/
+logs/
+
+# Caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# OS / editor noise
+.DS_Store
+*.swp
+
+# Excel lock files
+~$*.xlsx
+~$*.xls
+
+# Secrets
+.env
+.env.*

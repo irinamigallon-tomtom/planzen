@@ -11,6 +11,7 @@ import pandas as pd
 from planzen.config import (
     COL_ALLOC_MODE,
     COL_BUDGET_BUCKET,
+    COL_DEPENDS_ON,
     COL_EPIC,
     COL_ESTIMATION,
     COL_LINK,
@@ -109,6 +110,7 @@ def epics_df_from_models(epics: list[EpicModel]) -> pd.DataFrame:
             COL_LINK: epic.link,
             COL_TYPE: epic.type,
             COL_MILESTONE: epic.milestone,
+            COL_DEPENDS_ON: epic.depends_on,
         })
     return pd.DataFrame(rows)
 
