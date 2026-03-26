@@ -23,6 +23,7 @@ from planzen.config import (
     BUCKET_PRIORITY,
     COL_ALLOC_MODE,
     COL_BUDGET_BUCKET,
+    COL_DEPENDS_ON,
     COL_EPIC,
     COL_ESTIMATION,
     COL_LINK,
@@ -110,7 +111,7 @@ _TEAM_CONFIG_LABELS_NORM: dict[str, str] = {
 
 _KNOWN_COLUMNS: set[str] = {
     COL_EPIC, COL_ESTIMATION, COL_BUDGET_BUCKET, COL_LINK,
-    COL_PRIORITY, COL_ALLOC_MODE,
+    COL_PRIORITY, COL_ALLOC_MODE, COL_DEPENDS_ON,
 }
 _KNOWN_COLUMNS_LOWER: dict[str, str] = {c.lower(): c for c in _KNOWN_COLUMNS}
 
@@ -467,6 +468,50 @@ def validate_input_file(path: Path, quarter: int | None = None) -> list[str]:
                     f'Epic "{name}": invalid "Allocation Mode": {val!r}.\n'
                     f'  → Valid values: {", ".join(sorted(VALID_ALLOC_MODES))}'
                     f" (or leave blank to use the default: {ALLOC_MODE_DEFAULT})."
+                )
+
+    # --- dependency validation ---
+    if COL_DEPENDS_ON in epics_df.columns:
+        epic_names = set(
+            epics_df[COL_EPIC].dropna().astype(str).str.strip()
+        )
+        # Collect explicit (non-null) priorities for ordering checks.
+        explicit_priorities: dict[str, float] = {}
+        if COL_PRIORITY in epics_df.columns:
+            for _, row in epics_df.iterrows():
+                name_val = row.get(COL_EPIC, None)
+                prio_val = row.get(COL_PRIORITY, None)
+                if pd.notna(name_val) and pd.notna(prio_val):
+                    try:
+                        explicit_priorities[str(name_val).strip()] = float(prio_val)
+                    except (TypeError, ValueError):
+                        pass
+
+        for i, row in epics_df.iterrows():
+            raw_dep = row.get(COL_DEPENDS_ON, None)
+            dep_name = str(raw_dep).strip() if pd.notna(raw_dep) and str(raw_dep).strip() else ""
+            epic_name = str(row.get(COL_EPIC, f"row {i + 1}"))
+
+            if not dep_name:
+                continue
+
+            # Validate the referenced epic exists.
+            if dep_name not in epic_names:
+                errors.append(
+                    f'Epic "{epic_name}": "{COL_DEPENDS_ON}" references unknown epic: {dep_name!r}.\n'
+                    f'  → The value must exactly match an "Epic Description" in this file.'
+                )
+                continue
+
+            # Validate priority ordering (only when both priorities are explicit).
+            my_prio = explicit_priorities.get(epic_name)
+            dep_prio = explicit_priorities.get(dep_name)
+            if my_prio is not None and dep_prio is not None and dep_prio >= my_prio:
+                errors.append(
+                    f'Epic "{epic_name}" (priority {my_prio}) depends on "{dep_name}"'
+                    f' (priority {dep_prio}): the upstream epic must have a strictly'
+                    f' higher priority (lower number).\n'
+                    f'  → Set "{dep_name}" priority to a number lower than {my_prio}.'
                 )
 
     return errors

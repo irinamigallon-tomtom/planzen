@@ -56,6 +56,7 @@ If the sheet has week columns aligned to the quarter’s Mondays, capacity and a
 | `Link` | optional | — |
 | `Priority` | optional* | — (lower = higher priority) |
 | `Allocation Mode` | optional | — (see Allocation algorithm) |
+| `Depends On` | optional | — Epic Description of the upstream epic (see Epic dependencies) |
 | `Type` | optional | — |
 | `Milestone` | optional | — |
 
@@ -187,6 +188,17 @@ Overflow adds 13 more week columns (next quarter’s Mondays). For each epic:
 4. **Overflow top-up** — fills any residual deficit in overflow weeks.
 
 This ordering guarantees that a high-priority epic is never forced into overflow simply because its `weekly_ideal` rounds down (e.g. Uniform with `est=4`, `13 weeks` → `weekly_ideal=0.3`, main pass yields 3.9 PW; the Q top-up recovers the 0.1).
+
+### Epic dependencies
+
+An epic may declare a dependency on exactly one other epic using the optional `Depends On` column (the exact `Epic Description` of the upstream epic). The constraint is always "start after": epic B may not receive any allocation until the week **after** the last week in which epic A was allocated.
+
+**Requirements:**
+- The referenced epic must exist (exact match on `Epic Description`, case-sensitive).
+- The upstream epic (A) must have a **strictly higher priority** (lower priority number) than the dependent epic (B), so that A is fully scheduled before B is considered.
+- Only one upstream dependency per epic is supported.
+
+**Effect on the output:** The dependency is a scheduling constraint only — it does not add any new columns to the output table. The weekly allocation cells for B are simply `0` for any week before the constraint is satisfied, which may trigger `Off Estimate = True` if B cannot fit within the quarter.
 
 ### Priority Guard
 

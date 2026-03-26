@@ -25,6 +25,7 @@ class EpicModel(BaseModel):
     link: str = ""
     type: str = ""
     milestone: str = ""
+    depends_on: str = ""  # Epic Description of upstream epic, or "" for none
 
 
 class SessionState(BaseModel):

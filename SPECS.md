@@ -47,10 +47,12 @@ Full input format (columns, config labels, per-week mode, row rules): **[LOGIC.m
 3. Epic `Estimation` not numeric.
 4. Epic `Priority` provided but not numeric.
 5. `Allocation Mode` set but not one of `Sprint`, `Uniform`, `Gaps`.
+6. `Depends On` references an `Epic Description` not present in the file.
+7. Epic B has `Depends On` set to epic A, but A does not have a strictly higher priority (lower priority number) than B — the dependency ordering cannot be honoured.
 
 **Warnings** (processing continues):
 
-6. Per-week engineer bruto partially filled for Q — missing weeks use scalar from the mean of filled weeks.
+8. Per-week engineer bruto partially filled for Q — missing weeks use scalar from the mean of filled weeks.
 
 ---
 
@@ -149,6 +151,7 @@ BUCKET_COLORS: list[tuple[str, str]]
 - **`CapacityConfig`:** scalar mode; per-week mode, fallbacks, overflow behaviour per LOGIC.
 - **`build_output_table`:** six capacity rows; epics sorted; `Total Weeks` Q-only; `Off Estimate` / `Off Capacity`; column order.
 - **Modes:** Sprint cap 2.0 sequential; Uniform spread; Gaps allows zeros without sequential rule.
+- **Dependencies:** B's first allocation is in a week strictly after A's last. Priority ordering enforced. Missing dep name → scheduling proceeds without constraint (validation catches it before this point).
 - **Overflow:** when Σ estimation > Σ Q net; +13 columns; `Total Weeks` / `Off Estimate` still Q-only.
 - **Q top-up:** Uniform rounding shortfall in Q filled in Q before overflow when applicable.
 - **`validate_allocation`:** clean pass; violations on over-allocation / negatives.
@@ -157,6 +160,8 @@ BUCKET_COLORS: list[tuple[str, str]]
 - **`test_integration.py`:** CLI success; validation → exit 1 and no file; messy sample runs.
 
 **Edge cases:** estimation `0`; exact Q fit; single epic > Q capacity; absence > bruto → net ≥ 0 treatment; `Num Engineers` without bruto row; per-week absence NaN → 0 in Q; per-week + overflow bruto/absence rules; Uniform rounding in overflow scenario.
+
+**Dependency cases:** B starts the week after A's last; dep on unknown name → validation error; B priority ≤ A priority → validation error; `Depends On` blank → no constraint.
 
 ### `web/backend/tests/`
 
@@ -202,6 +207,7 @@ class EpicModel(BaseModel):
     link: str = ""
     type: str = ""
     milestone: str = ""
+    depends_on: str = ""  # Epic Description of upstream epic, or "" for none
 
 class SessionState(BaseModel):
     session_id: str

@@ -20,6 +20,7 @@ from planzen.config import (
     ALLOC_MODE_UNIFORM,
     COL_ALLOC_MODE,
     COL_BUDGET_BUCKET,
+    COL_DEPENDS_ON,
     COL_EPIC,
     COL_ESTIMATION,
     COL_PRIORITY,
@@ -347,7 +348,12 @@ def _allocate_epics(
     sorted_epics = epics_df.sort_values(COL_PRIORITY, kind="stable")
     remaining: list[float] = [capacity.eng_net_for(m) for m in mondays]
     has_mode_col = COL_ALLOC_MODE in epics_df.columns
+    has_dep_col = COL_DEPENDS_ON in epics_df.columns
     unfinished_priorities_in_quarter: set[float] = set()
+
+    # Track first and last allocated week index per epic name (for dependency resolution).
+    epic_first_week: dict[str, int] = {}
+    epic_last_week: dict[str, int] = {}
 
     for _, epic in sorted_epics.iterrows():
         estimation = float(epic[COL_ESTIMATION])
@@ -362,6 +368,15 @@ def _allocate_epics(
             mode = ""
         if mode not in VALID_ALLOC_MODES:
             mode = ALLOC_MODE_DEFAULT
+
+        # --- resolve dependency start constraint ---
+        earliest_start_idx = 0
+        if has_dep_col:
+            raw_dep = epic.get(COL_DEPENDS_ON, None)
+            dep_name = str(raw_dep).strip() if pd.notna(raw_dep) and str(raw_dep).strip() else ""
+            if dep_name:
+                last_idx = epic_last_week.get(dep_name, -1)
+                earliest_start_idx = last_idx + 1 if last_idx >= 0 else 0
 
         # --- per-mode settings ---
         if mode == ALLOC_MODE_UNIFORM:
@@ -381,6 +396,9 @@ def _allocate_epics(
 
         # ---- Phase 1: Q weeks ----
         for i in range(n_base_weeks):
+            if i < earliest_start_idx:
+                allocations.append(0.0)
+                continue
             budget_left = round(estimation - total_allocated, 1)
             if block_quarter_completion:
                 # Keep this epic unfinished in Q by at least 0.1 PW.
@@ -404,7 +422,7 @@ def _allocate_epics(
                 allocations=allocations,
                 remaining=remaining,
                 total_allocated=total_allocated,
-                start_idx=0,
+                start_idx=max(0, earliest_start_idx),
                 end_idx=n_base_weeks,
                 weekly_cap=weekly_cap,
             )
@@ -412,6 +430,9 @@ def _allocate_epics(
 
         # ---- Phase 2: overflow weeks (if budget remains) ----
         for i in range(n_base_weeks, n_weeks):
+            if i < earliest_start_idx:
+                allocations.append(0.0)
+                continue
             budget_left = round(estimation - total_allocated, 1)
             if budget_left <= 1e-9 or remaining[i] <= 1e-9:
                 alloc = 0.0
@@ -430,10 +451,19 @@ def _allocate_epics(
                 allocations=allocations,
                 remaining=remaining,
                 total_allocated=total_allocated,
-                start_idx=n_base_weeks,
+                start_idx=max(n_base_weeks, earliest_start_idx),
                 end_idx=n_weeks,
                 weekly_cap=weekly_cap,
             )
+
+        # ---- Record first/last allocated week for dependency resolution ----
+        epic_name = str(epic[COL_EPIC])
+        first_idx = next((i for i, a in enumerate(allocations) if a > 0), None)
+        last_idx = max((i for i, a in enumerate(allocations) if a > 0), default=None)
+        if first_idx is not None:
+            epic_first_week[epic_name] = first_idx
+        if last_idx is not None:
+            epic_last_week[epic_name] = last_idx
 
         quarter_allocated = round(sum(allocations[:n_base_weeks]), 1)
         if estimation - quarter_allocated > _ESTIMATE_TOLERANCE_PW:
